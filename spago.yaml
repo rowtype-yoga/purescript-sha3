@@ -1,0 +1,19 @@
+package:
+  name: sha3
+  dependencies:
+    - arrays
+    - console
+    - effect
+    - foldable-traversable
+    - integers
+    - maybe
+    - prelude
+    - strings
+    - enums
+  test:
+    main: Test.Crypto.SHA3
+    dependencies: []
+workspace:
+  packageSet:
+    registry: 73.0.0
+  extraPackages: {}

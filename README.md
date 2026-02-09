@@ -24,7 +24,7 @@ Add to your `spago.yaml` dependencies:
 workspace:
   extra_packages:
     sha3:
-      git: https://github.com/pissiboi/purescript-sha3.git
+      git: https://github.com/rowtype-yoga/purescript-sha3.git
       ref: main
       subdir: null
 

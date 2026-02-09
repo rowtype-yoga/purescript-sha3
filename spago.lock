@@ -12,6 +12,7 @@
             "foldable-traversable",
             "integers",
             "maybe",
+            "node-buffer",
             "prelude",
             "strings"
           ]
@@ -615,6 +616,12 @@
     "extra_packages": {}
   },
   "packages": {
+    "arraybuffer-types": {
+      "type": "registry",
+      "version": "3.0.2",
+      "integrity": "sha256-p05cJnSkyeoB7VHzMyc2Eb1RwUaB7Nl0sQSqEGNEUD8=",
+      "dependencies": []
+    },
     "arrays": {
       "type": "registry",
       "version": "7.3.0",
@@ -857,6 +864,22 @@
         "safe-coerce"
       ]
     },
+    "node-buffer": {
+      "type": "registry",
+      "version": "9.0.0",
+      "integrity": "sha256-RdQjilmEHqsT4fwpCr8Mavw8KTafYrS3ZM6zeAAVAl8=",
+      "dependencies": [
+        "arraybuffer-types",
+        "effect",
+        "functions",
+        "maybe",
+        "nullable",
+        "partial",
+        "prelude",
+        "st",
+        "unsafe-coerce"
+      ]
+    },
     "nonempty": {
       "type": "registry",
       "version": "7.0.0",
@@ -868,6 +891,16 @@
         "prelude",
         "tuples",
         "unfoldable"
+      ]
+    },
+    "nullable": {
+      "type": "registry",
+      "version": "6.0.0",
+      "integrity": "sha256-CDAZk+L9Sc0GCFTkE8n+qdp4Ys8avvnkU+m2hVALt7M=",
+      "dependencies": [
+        "functions",
+        "maybe",
+        "prelude"
       ]
     },
     "numbers": {

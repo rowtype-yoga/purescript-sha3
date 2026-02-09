@@ -4,12 +4,13 @@ package:
     - arrays
     - console
     - effect
+    - enums
     - foldable-traversable
     - integers
     - maybe
+    - node-buffer
     - prelude
     - strings
-    - enums
   test:
     main: Test.Crypto.SHA3
     dependencies: []

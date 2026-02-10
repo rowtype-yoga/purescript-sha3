@@ -44,6 +44,7 @@
         LD_LIBRARY_PATH = "${pkgs.pcre2.out}/lib:${pkgs.icu.out}/lib";
         # CHEZSCHEMELIBDIRS = "${pkgs.chez-srfi}/lib/csv10.3-site:";
         CHEZSCHEMELIBDIRS = "${pkgs.chez-srfi}/lib/${pkgs.chez.name}-site:";
+        
         buildInputs = with pkgs; [
 
           esbuild

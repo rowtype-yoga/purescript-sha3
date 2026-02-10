@@ -10,7 +10,8 @@
 (library (Crypto.Word64 foreign)
   (export w64xor w64and w64or w64complement w64rotL
           _assembleBytesLE w64toBytesLE)
-  (import (chezscheme))
+  (import (chezscheme)
+          (srfi :214))
 
   ;; 64-bit mask: all bits set in [0..63]
   (define mask64 #xFFFFFFFFFFFFFFFF)
@@ -72,11 +73,11 @@
                                 (logior (ash b6 48)
                                   (ash b7 56)))))))))))))))))
 
-  ;; Decompose a 64-bit word into a list (PureScript Array) of 8 bytes,
+  ;; Decompose a 64-bit word into a flexvector of 8 bytes,
   ;; little-endian order.
   (define w64toBytesLE
     (lambda (w)
-      (list->vector
+      (list->flexvector
         (list
           (logand w #xFF)
           (logand (ash w -8) #xFF)

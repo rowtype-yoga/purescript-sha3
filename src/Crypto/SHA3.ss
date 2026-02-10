@@ -1,82 +1,77 @@
 ;;; Crypto.SHA3 — Chez Scheme FFI
-;;;
-;;; String-to-UTF8, hex encoding/decoding.
-;;; No more Node.js Buffer — we're running on bare metal now.
 
 (library (Crypto.SHA3 foreign)
   (export stringToUtf8 bytesToHex hexToBytes_)
-  (import (chezscheme))
+  (import (chezscheme)
+          (purescm pstring)
+          (srfi :214))
 
-  ;; Convert a PureScript String to an array of UTF-8 bytes.
-  ;; Chez Scheme strings are Unicode; we encode to UTF-8 via bytevector.
+  ;; Convert a PureScript String (pstring) to a flexvector of UTF-8 bytes.
   (define stringToUtf8
-    (lambda (str)
-      (let* ([bv (string->utf8 str)]
+    (lambda (pstr)
+      (let* ([str (pstring->string pstr)]
+             [bv (string->utf8 str)]
              [len (bytevector-length bv)])
-        (let loop ([i 0] [acc '()])
-          (if (= i len)
-              (list->vector (reverse acc))
-              (loop (+ i 1)
-                    (cons (bytevector-u8-ref bv i) acc)))))))
+        (let ([fv (make-flexvector len)])
+          (let loop ([i 0])
+            (if (= i len)
+                fv
+                (begin
+                  (flexvector-set! fv i (bytevector-u8-ref bv i))
+                  (loop (+ i 1)))))))))
 
-  ;; Encode an array of byte values as a lowercase hex string.
+  ;; Encode a flexvector of byte values as a lowercase hex string.
   (define bytesToHex
     (lambda (arr)
-      (let* ([len (vector-length arr)]
+      (let* ([len (flexvector-length arr)]
              [hex-chars "0123456789abcdef"])
         (let loop ([i 0] [acc '()])
           (if (= i len)
-              (apply string-append (reverse acc))
-              (let ([b (vector-ref arr i)])
+              (string->pstring (apply string-append (reverse acc)))
+              (let ([b (flexvector-ref arr i)])
                 (loop (+ i 1)
                       (cons (string
                               (string-ref hex-chars (ash b -4))
                               (string-ref hex-chars (logand b #xF)))
                             acc))))))))
 
-  ;; Decode a hex string to an array of bytes, returning (Just arr) or Nothing.
-  ;; Takes the Just and Nothing constructors as arguments (purescm pattern).
+  ;; Decode a hex string to a flexvector of bytes, returning (Just arr) or Nothing.
   (define hexToBytes_
     (lambda (just)
       (lambda (nothing)
-        (lambda (str)
-          (let ([len (string-length str)])
+        (lambda (pstr)
+          (let* ([str (pstring->string pstr)]
+                 [len (string-length str)])
             (if (or (odd? len)
                     (not (hex-string? str)))
                 nothing
-                ((just)
-                 (let loop ([i 0] [acc '()])
-                   (if (= i len)
-                       (list->vector (reverse acc))
-                       (loop (+ i 2)
-                             (cons (+ (* (hex-digit (string-ref str i)) 16)
-                                      (hex-digit (string-ref str (+ i 1))))
-                                   acc)))))))))))
+                (just
+                 (let* ([out-len (div len 2)]
+                        [fv (make-flexvector out-len)])
+                   (let loop ([i 0] [j 0])
+                     (if (= i len)
+                         fv
+                         (begin
+                           (flexvector-set! fv j
+                             (+ (* (hex-val (string-ref str i)) 16)
+                                (hex-val (string-ref str (+ i 1)))))
+                           (loop (+ i 2) (+ j 1)))))))))))))
 
-  ;; Helper: is every char in the string a hex digit?
-  (define hex-string?
-    (lambda (str)
-      (let ([len (string-length str)])
-        (let loop ([i 0])
-          (if (= i len)
-              #t
-              (let ([c (string-ref str i)])
-                (if (or (and (char>=? c #\0) (char<=? c #\9))
-                        (and (char>=? c #\a) (char<=? c #\f))
-                        (and (char>=? c #\A) (char<=? c #\F)))
-                    (loop (+ i 1))
-                    #f)))))))
+  (define (hex-string? str)
+    (let ([len (string-length str)])
+      (let loop ([i 0])
+        (or (= i len)
+            (and (hex-char? (string-ref str i))
+                 (loop (+ i 1)))))))
 
-  ;; Helper: convert a hex char to its numeric value.
-  (define hex-digit
-    (lambda (c)
-      (cond
-        [(and (char>=? c #\0) (char<=? c #\9))
-         (- (char->integer c) (char->integer #\0))]
-        [(and (char>=? c #\a) (char<=? c #\f))
-         (+ 10 (- (char->integer c) (char->integer #\a)))]
-        [(and (char>=? c #\A) (char<=? c #\F))
-         (+ 10 (- (char->integer c) (char->integer #\A)))]
-        [else 0])))
+  (define (hex-char? c)
+    (or (char<=? #\0 c #\9)
+        (char<=? #\a c #\f)
+        (char<=? #\A c #\F)))
 
-) ;; end library
+  (define (hex-val c)
+    (cond
+      [(char<=? #\0 c #\9) (- (char->integer c) (char->integer #\0))]
+      [(char<=? #\a c #\f) (+ 10 (- (char->integer c) (char->integer #\a)))]
+      [(char<=? #\A c #\F) (+ 10 (- (char->integer c) (char->integer #\A)))]))
+)

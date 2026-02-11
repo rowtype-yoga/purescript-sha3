@@ -1,7 +1,6 @@
 // Crypto.SHA3.Keccak — Optimized FFI
 //
 // Keccak-f[1600] permutation and sponge construction.
-// Matches js-sha3's fully-unrolled permutation with local variables.
 // Adds Buffer-native sponge to eliminate Array<->Buffer conversions.
 
 // ── Round Constants (flat interleaved lo/hi, same as js-sha3) ───────────────
@@ -18,7 +17,6 @@ var RC = [
 var SHIFT = [0, 8, 16, 24];
 
 // ── Keccak-f[1600] Permutation ──────────────────────────────────────────────
-// Identical to js-sha3's f(): 50 local vars, fully unrolled ρ+π and χ.
 
 function f(s) {
   var h, l, n,

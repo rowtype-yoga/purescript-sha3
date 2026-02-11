@@ -146,5 +146,3 @@ main = do
       , expected: show (Just (toString (hash SHA3_256 "abc")))
       }
     ]
-  log ""
-  Bench.benchSuite

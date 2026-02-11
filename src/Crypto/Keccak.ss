@@ -1,5 +1,3 @@
-;;; Crypto.Keccak — Optimized Chez Scheme FFI (fully fixnum, optimize-level 3)
-
 (optimize-level 3)
 
 (library (Crypto.Keccak foreign)
@@ -131,54 +129,54 @@
       (let* (
              [b0h (vector-ref s 0)]
              [b0l (vector-ref s 1)]
-             [b1h (fxlogior (sll32 (vector-ref s 20) 3) (fxsrl (vector-ref s 21) 29))]
-             [b1l (fxlogior (sll32 (vector-ref s 21) 3) (fxsrl (vector-ref s 20) 29))]
-             [b2h (fxlogior (sll32 (vector-ref s 40) 18) (fxsrl (vector-ref s 41) 14))]
-             [b2l (fxlogior (sll32 (vector-ref s 41) 18) (fxsrl (vector-ref s 40) 14))]
-             [b3h (fxlogior (sll32 (vector-ref s 11) 4) (fxsrl (vector-ref s 10) 28))]
-             [b3l (fxlogior (sll32 (vector-ref s 10) 4) (fxsrl (vector-ref s 11) 28))]
-             [b4h (fxlogior (sll32 (vector-ref s 31) 9) (fxsrl (vector-ref s 30) 23))]
-             [b4l (fxlogior (sll32 (vector-ref s 30) 9) (fxsrl (vector-ref s 31) 23))]
-             [b5h (fxlogior (sll32 (vector-ref s 33) 13) (fxsrl (vector-ref s 32) 19))]
-             [b5l (fxlogior (sll32 (vector-ref s 32) 13) (fxsrl (vector-ref s 33) 19))]
-             [b6h (fxlogior (sll32 (vector-ref s 2) 1) (fxsrl (vector-ref s 3) 31))]
-             [b6l (fxlogior (sll32 (vector-ref s 3) 1) (fxsrl (vector-ref s 2) 31))]
-             [b7h (fxlogior (sll32 (vector-ref s 22) 10) (fxsrl (vector-ref s 23) 22))]
-             [b7l (fxlogior (sll32 (vector-ref s 23) 10) (fxsrl (vector-ref s 22) 22))]
-             [b8h (fxlogior (sll32 (vector-ref s 42) 2) (fxsrl (vector-ref s 43) 30))]
-             [b8l (fxlogior (sll32 (vector-ref s 43) 2) (fxsrl (vector-ref s 42) 30))]
-             [b9h (fxlogior (sll32 (vector-ref s 13) 12) (fxsrl (vector-ref s 12) 20))]
-             [b9l (fxlogior (sll32 (vector-ref s 12) 12) (fxsrl (vector-ref s 13) 20))]
-             [b10h (fxlogior (sll32 (vector-ref s 14) 6) (fxsrl (vector-ref s 15) 26))]
-             [b10l (fxlogior (sll32 (vector-ref s 15) 6) (fxsrl (vector-ref s 14) 26))]
-             [b11h (fxlogior (sll32 (vector-ref s 34) 15) (fxsrl (vector-ref s 35) 17))]
-             [b11l (fxlogior (sll32 (vector-ref s 35) 15) (fxsrl (vector-ref s 34) 17))]
-             [b12h (fxlogior (sll32 (vector-ref s 5) 30) (fxsrl (vector-ref s 4) 2))]
-             [b12l (fxlogior (sll32 (vector-ref s 4) 30) (fxsrl (vector-ref s 5) 2))]
-             [b13h (fxlogior (sll32 (vector-ref s 25) 11) (fxsrl (vector-ref s 24) 21))]
-             [b13l (fxlogior (sll32 (vector-ref s 24) 11) (fxsrl (vector-ref s 25) 21))]
-             [b14h (fxlogior (sll32 (vector-ref s 45) 29) (fxsrl (vector-ref s 44) 3))]
-             [b14l (fxlogior (sll32 (vector-ref s 44) 29) (fxsrl (vector-ref s 45) 3))]
-             [b15h (fxlogior (sll32 (vector-ref s 47) 24) (fxsrl (vector-ref s 46) 8))]
-             [b15l (fxlogior (sll32 (vector-ref s 46) 24) (fxsrl (vector-ref s 47) 8))]
-             [b16h (fxlogior (sll32 (vector-ref s 17) 23) (fxsrl (vector-ref s 16) 9))]
-             [b16l (fxlogior (sll32 (vector-ref s 16) 23) (fxsrl (vector-ref s 17) 9))]
-             [b17h (fxlogior (sll32 (vector-ref s 36) 21) (fxsrl (vector-ref s 37) 11))]
-             [b17l (fxlogior (sll32 (vector-ref s 37) 21) (fxsrl (vector-ref s 36) 11))]
-             [b18h (fxlogior (sll32 (vector-ref s 6) 28) (fxsrl (vector-ref s 7) 4))]
-             [b18l (fxlogior (sll32 (vector-ref s 7) 28) (fxsrl (vector-ref s 6) 4))]
-             [b19h (fxlogior (sll32 (vector-ref s 26) 25) (fxsrl (vector-ref s 27) 7))]
-             [b19l (fxlogior (sll32 (vector-ref s 27) 25) (fxsrl (vector-ref s 26) 7))]
-             [b20h (fxlogior (sll32 (vector-ref s 29) 7) (fxsrl (vector-ref s 28) 25))]
-             [b20l (fxlogior (sll32 (vector-ref s 28) 7) (fxsrl (vector-ref s 29) 25))]
-             [b21h (fxlogior (sll32 (vector-ref s 48) 14) (fxsrl (vector-ref s 49) 18))]
-             [b21l (fxlogior (sll32 (vector-ref s 49) 14) (fxsrl (vector-ref s 48) 18))]
-             [b22h (fxlogior (sll32 (vector-ref s 18) 20) (fxsrl (vector-ref s 19) 12))]
-             [b22l (fxlogior (sll32 (vector-ref s 19) 20) (fxsrl (vector-ref s 18) 12))]
-             [b23h (fxlogior (sll32 (vector-ref s 38) 8) (fxsrl (vector-ref s 39) 24))]
-             [b23l (fxlogior (sll32 (vector-ref s 39) 8) (fxsrl (vector-ref s 38) 24))]
-             [b24h (fxlogior (sll32 (vector-ref s 8) 27) (fxsrl (vector-ref s 9) 5))]
-             [b24l (fxlogior (sll32 (vector-ref s 9) 27) (fxsrl (vector-ref s 8) 5))]
+             [b1h (fxlogior (sll32 (vector-ref s 13) 12) (fxsrl (vector-ref s 12) 20))]
+             [b1l (fxlogior (sll32 (vector-ref s 12) 12) (fxsrl (vector-ref s 13) 20))]
+             [b2h (fxlogior (sll32 (vector-ref s 25) 11) (fxsrl (vector-ref s 24) 21))]
+             [b2l (fxlogior (sll32 (vector-ref s 24) 11) (fxsrl (vector-ref s 25) 21))]
+             [b3h (fxlogior (sll32 (vector-ref s 36) 21) (fxsrl (vector-ref s 37) 11))]
+             [b3l (fxlogior (sll32 (vector-ref s 37) 21) (fxsrl (vector-ref s 36) 11))]
+             [b4h (fxlogior (sll32 (vector-ref s 48) 14) (fxsrl (vector-ref s 49) 18))]
+             [b4l (fxlogior (sll32 (vector-ref s 49) 14) (fxsrl (vector-ref s 48) 18))]
+             [b5h (fxlogior (sll32 (vector-ref s 6) 28) (fxsrl (vector-ref s 7) 4))]
+             [b5l (fxlogior (sll32 (vector-ref s 7) 28) (fxsrl (vector-ref s 6) 4))]
+             [b6h (fxlogior (sll32 (vector-ref s 18) 20) (fxsrl (vector-ref s 19) 12))]
+             [b6l (fxlogior (sll32 (vector-ref s 19) 20) (fxsrl (vector-ref s 18) 12))]
+             [b7h (fxlogior (sll32 (vector-ref s 20) 3) (fxsrl (vector-ref s 21) 29))]
+             [b7l (fxlogior (sll32 (vector-ref s 21) 3) (fxsrl (vector-ref s 20) 29))]
+             [b8h (fxlogior (sll32 (vector-ref s 33) 13) (fxsrl (vector-ref s 32) 19))]
+             [b8l (fxlogior (sll32 (vector-ref s 32) 13) (fxsrl (vector-ref s 33) 19))]
+             [b9h (fxlogior (sll32 (vector-ref s 45) 29) (fxsrl (vector-ref s 44) 3))]
+             [b9l (fxlogior (sll32 (vector-ref s 44) 29) (fxsrl (vector-ref s 45) 3))]
+             [b10h (fxlogior (sll32 (vector-ref s 2) 1) (fxsrl (vector-ref s 3) 31))]
+             [b10l (fxlogior (sll32 (vector-ref s 3) 1) (fxsrl (vector-ref s 2) 31))]
+             [b11h (fxlogior (sll32 (vector-ref s 14) 6) (fxsrl (vector-ref s 15) 26))]
+             [b11l (fxlogior (sll32 (vector-ref s 15) 6) (fxsrl (vector-ref s 14) 26))]
+             [b12h (fxlogior (sll32 (vector-ref s 26) 25) (fxsrl (vector-ref s 27) 7))]
+             [b12l (fxlogior (sll32 (vector-ref s 27) 25) (fxsrl (vector-ref s 26) 7))]
+             [b13h (fxlogior (sll32 (vector-ref s 38) 8) (fxsrl (vector-ref s 39) 24))]
+             [b13l (fxlogior (sll32 (vector-ref s 39) 8) (fxsrl (vector-ref s 38) 24))]
+             [b14h (fxlogior (sll32 (vector-ref s 40) 18) (fxsrl (vector-ref s 41) 14))]
+             [b14l (fxlogior (sll32 (vector-ref s 41) 18) (fxsrl (vector-ref s 40) 14))]
+             [b15h (fxlogior (sll32 (vector-ref s 8) 27) (fxsrl (vector-ref s 9) 5))]
+             [b15l (fxlogior (sll32 (vector-ref s 9) 27) (fxsrl (vector-ref s 8) 5))]
+             [b16h (fxlogior (sll32 (vector-ref s 11) 4) (fxsrl (vector-ref s 10) 28))]
+             [b16l (fxlogior (sll32 (vector-ref s 10) 4) (fxsrl (vector-ref s 11) 28))]
+             [b17h (fxlogior (sll32 (vector-ref s 22) 10) (fxsrl (vector-ref s 23) 22))]
+             [b17l (fxlogior (sll32 (vector-ref s 23) 10) (fxsrl (vector-ref s 22) 22))]
+             [b18h (fxlogior (sll32 (vector-ref s 34) 15) (fxsrl (vector-ref s 35) 17))]
+             [b18l (fxlogior (sll32 (vector-ref s 35) 15) (fxsrl (vector-ref s 34) 17))]
+             [b19h (fxlogior (sll32 (vector-ref s 47) 24) (fxsrl (vector-ref s 46) 8))]
+             [b19l (fxlogior (sll32 (vector-ref s 46) 24) (fxsrl (vector-ref s 47) 8))]
+             [b20h (fxlogior (sll32 (vector-ref s 5) 30) (fxsrl (vector-ref s 4) 2))]
+             [b20l (fxlogior (sll32 (vector-ref s 4) 30) (fxsrl (vector-ref s 5) 2))]
+             [b21h (fxlogior (sll32 (vector-ref s 17) 23) (fxsrl (vector-ref s 16) 9))]
+             [b21l (fxlogior (sll32 (vector-ref s 16) 23) (fxsrl (vector-ref s 17) 9))]
+             [b22h (fxlogior (sll32 (vector-ref s 29) 7) (fxsrl (vector-ref s 28) 25))]
+             [b22l (fxlogior (sll32 (vector-ref s 28) 7) (fxsrl (vector-ref s 29) 25))]
+             [b23h (fxlogior (sll32 (vector-ref s 31) 9) (fxsrl (vector-ref s 30) 23))]
+             [b23l (fxlogior (sll32 (vector-ref s 30) 9) (fxsrl (vector-ref s 31) 23))]
+             [b24h (fxlogior (sll32 (vector-ref s 42) 2) (fxsrl (vector-ref s 43) 30))]
+             [b24l (fxlogior (sll32 (vector-ref s 43) 2) (fxsrl (vector-ref s 42) 30))]
              )
         ;; χ + ι
         (vector-set! s 0 (fxlogxor (fxlogxor b0h (fxlogand (fxlogxor b1h #xFFFFFFFF) b2h)) (vector-ref rc-hi round)))
@@ -234,7 +232,23 @@
         )
       ))
 
-  ;; ── Sponge (bytevector-native I/O) ─────────────────────────────────
+  ;; ── Byte helpers ───────────────────────────────────────────────────────
+
+  (define (bytes-to-hi bv offset)
+    (fxlogior
+      (bytevector-u8-ref bv (fx+ offset 4))
+      (fxlogior (fxsll (bytevector-u8-ref bv (fx+ offset 5)) 8)
+        (fxlogior (fxsll (bytevector-u8-ref bv (fx+ offset 6)) 16)
+                  (fxsll (bytevector-u8-ref bv (fx+ offset 7)) 24)))))
+
+  (define (bytes-to-lo bv offset)
+    (fxlogior
+      (bytevector-u8-ref bv offset)
+      (fxlogior (fxsll (bytevector-u8-ref bv (fx+ offset 1)) 8)
+        (fxlogior (fxsll (bytevector-u8-ref bv (fx+ offset 2)) 16)
+                  (fxsll (bytevector-u8-ref bv (fx+ offset 3)) 24)))))
+
+  ;; ── Sponge ─────────────────────────────────────────────────────────────
 
   (define spongeOptimized
     (lambda (rate-bytes)
@@ -260,7 +274,7 @@
                    [num-lanes (fxdiv rate-bytes 8)]
                    [num-blocks (fxdiv padded-len rate-bytes)])
 
-              ;; Absorb — use bytevector-u32-native-ref for speed
+              ;; Absorb
               (do ([blk 0 (fx+ blk 1)])
                   ((fx= blk num-blocks))
                 (let ([off (fx* blk rate-bytes)])
@@ -270,10 +284,10 @@
                            [lane2 (fx* lane 2)])
                       (vector-set! s lane2
                         (fxlogxor (vector-ref s lane2)
-                                  (bytevector-u32-native-ref padded (fx+ byte-off 4))))
+                                  (bytes-to-hi padded byte-off)))
                       (vector-set! s (fx+ lane2 1)
                         (fxlogxor (vector-ref s (fx+ lane2 1))
-                                  (bytevector-u32-native-ref padded byte-off))))))
+                                  (bytes-to-lo padded byte-off))))))
                 (keccak-f! s))
 
               ;; Squeeze
@@ -286,22 +300,17 @@
                       (let* ([base (fx+ pos (fx* lane 8))]
                              [lane2 (fx* lane 2)]
                              [hi (vector-ref s lane2)]
-                             [lo (vector-ref s (fx+ lane2 1))]
-                             [remaining (fx- output-bytes base)])
+                             [lo (vector-ref s (fx+ lane2 1))])
                         ;; Write lo bytes (0-3)
-                        (when (fx>= remaining 4)
-                          (bytevector-u32-native-set! out-bv base lo))
-                        (when (and (fx< remaining 4) (fx> remaining 0))
-                          (do ([b 0 (fx+ b 1)]) ((or (fx= b 4) (fx= b remaining)))
-                            (bytevector-u8-set! out-bv (fx+ base b)
-                              (fxlogand (fxsrl lo (fx* b 8)) #xFF))))
+                        (do ([byte-idx 0 (fx+ byte-idx 1)])
+                            ((or (fx= byte-idx 4) (fx>= (fx+ base byte-idx) output-bytes)))
+                          (bytevector-u8-set! out-bv (fx+ base byte-idx)
+                            (fxlogand (fxsrl lo (fx* byte-idx 8)) #xFF)))
                         ;; Write hi bytes (4-7)
-                        (when (fx>= remaining 8)
-                          (bytevector-u32-native-set! out-bv (fx+ base 4) hi))
-                        (when (and (fx< remaining 8) (fx> remaining 4))
-                          (do ([b 0 (fx+ b 1)]) ((or (fx= b 4) (fx= (fx+ b 4) remaining)))
-                            (bytevector-u8-set! out-bv (fx+ base (fx+ b 4))
-                              (fxlogand (fxsrl hi (fx* b 8)) #xFF))))))
+                        (do ([byte-idx 0 (fx+ byte-idx 1)])
+                            ((or (fx= byte-idx 4) (fx>= (fx+ base (fx+ byte-idx 4)) output-bytes)))
+                          (bytevector-u8-set! out-bv (fx+ base (fx+ byte-idx 4))
+                            (fxlogand (fxsrl hi (fx* byte-idx 8)) #xFF)))))
                     (let ([next-pos (fx+ pos rate-bytes)])
                       (when (fx< next-pos output-bytes)
                         (keccak-f! s))

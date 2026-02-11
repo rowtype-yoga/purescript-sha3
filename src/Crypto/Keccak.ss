@@ -1,17 +1,24 @@
-;;; Crypto.Keccak — Optimized Chez Scheme FFI
+;;; Crypto.Keccak — Optimized Chez Scheme FFI (32-bit interleaved, fixnum-only)
 ;;;
-;;; Keccak-f[1600] permutation and sponge construction using mutable vectors.
-;;; State is a vector of 25 native 64-bit integers. Chez Scheme handles
-;;; these as fixnums (up to 60 bits) or bignums transparently.
+;;; Keccak-f[1600] using 50 fixnums (25 lanes × hi/lo 32-bit halves).
+;;; Right shifts use fxsrl (always safe). Left shifts use ash + logand
+;;; because fxsll overflows when a 32-bit value is shifted past 2^60.
 
 (library (Crypto.Keccak foreign)
   (export roundConstants orInt spongeOptimized keccakF1600Optimized)
   (import (chezscheme)
           (srfi :214))
 
-  (define mask64 #xFFFFFFFFFFFFFFFF)
+  (define mask32 #xFFFFFFFF)
 
-  ;; ── Round Constants ────────────────────────────────────────────────────
+  ;; ── Safe 32-bit left shift ─────────────────────────────────────────────
+  ;; fxsll overflows when result > 2^60. ash handles arbitrary precision,
+  ;; logand mask32 brings it back to a fixnum.
+  (define-syntax sll32
+    (syntax-rules ()
+      [(_ x n) (logand (ash x n) mask32)]))
+
+  ;; ── Legacy exports ─────────────────────────────────────────────────────
 
   (define roundConstants
     (list->flexvector
@@ -30,25 +37,23 @@
       (lambda (b)
         (logior a b))))
 
-  ;; ── Helpers ────────────────────────────────────────────────────────────
+  ;; ── Round constants as hi/lo 32-bit vectors ────────────────────────────
 
-  (define-syntax xor64
-    (syntax-rules ()
-      [(_ a b) (logand (logxor a b) mask64)]))
+  (define rc-hi
+    '#(#x00000000 #x00000000 #x80000000 #x80000000
+       #x00000000 #x00000000 #x80000000 #x80000000
+       #x00000000 #x00000000 #x00000000 #x00000000
+       #x00000000 #x80000000 #x80000000 #x80000000
+       #x80000000 #x80000000 #x00000000 #x80000000
+       #x80000000 #x80000000 #x00000000 #x80000000))
 
-  (define-syntax and64
-    (syntax-rules ()
-      [(_ a b) (logand a b)]))
-
-  (define-syntax not64
-    (syntax-rules ()
-      [(_ a) (logand (lognot a) mask64)]))
-
-  (define-syntax rotl64
-    (syntax-rules ()
-      [(_ x n)
-       (if (= n 0) x
-           (logand (logior (ash x n) (ash x (- n 64))) mask64))]))
+  (define rc-lo
+    '#(#x00000001 #x00008082 #x0000808A #x80008000
+       #x0000808B #x80000001 #x80008081 #x00008009
+       #x0000008A #x00000088 #x80008009 #x8000000A
+       #x8000808B #x0000008B #x00008089 #x00008003
+       #x00008002 #x00000080 #x0000800A #x8000000A
+       #x80008081 #x00008080 #x80000001 #x80008008))
 
   ;; ── ρ offsets ──────────────────────────────────────────────────────────
 
@@ -59,99 +64,141 @@
        41 45 15 21  8
        18  2 61 56 14))
 
-  ;; ── Round constants as a native vector for fast access ─────────────────
+  ;; ── π source lane table ────────────────────────────────────────────────
 
-  (define rc-vec
-    '#( #x0000000000000001 #x0000000000008082 #x800000000000808A
-        #x8000000080008000 #x000000000000808B #x0000000080000001
-        #x8000000080008081 #x8000000000008009 #x000000000000008A
-        #x0000000000000088 #x0000000080008009 #x000000008000000A
-        #x000000008000808B #x800000000000008B #x8000000000008089
-        #x8000000000008003 #x8000000000008002 #x8000000000000080
-        #x000000000000800A #x800000008000000A #x8000000080008081
-        #x8000000000008080 #x0000000080000001 #x8000000080008008))
+  (define pi-lanes
+    '#(0 10 20 5 15 16 1 11 21 6 7 17 2 12 22 23 8 18 3 13 14 24 9 19 4))
 
-  ;; ── Keccak-f[1600] on a mutable vector(25) ────────────────────────────
+  ;; ── Keccak-f[1600] on mutable vector(50) of fixnums ──────────────────
+  ;; Layout: s[2*i] = hi32, s[2*i+1] = lo32 for lane i.
 
   (define (keccak-f! s)
-    (let ([c (make-vector 5)]
-          [d (make-vector 5)]
-          [b (make-vector 25)])
-      (do ([round 0 (+ round 1)])
-          ((= round 24))
+    (let ([c (make-vector 10)]
+          [d (make-vector 10)]
+          [b (make-vector 50)])
+      (do ([round 0 (fx+ round 1)])
+          ((fx= round 24))
 
-        ;; ── θ ──────────────────────────────────────────────────────
-        (do ([x 0 (+ x 1)])
-            ((= x 5))
-          (vector-set! c x
-            (xor64
-              (xor64 (vector-ref s x)
-                     (vector-ref s (+ x 5)))
-              (xor64 (vector-ref s (+ x 10))
-                     (xor64 (vector-ref s (+ x 15))
-                            (vector-ref s (+ x 20)))))))
+        ;; ── θ: column parities ─────────────────────────────────────
+        (do ([x 0 (fx+ x 1)])
+            ((fx= x 5))
+          (let ([x2 (fx* x 2)])
+            (vector-set! c x2
+              (fxlogand
+                (fxlogxor
+                  (fxlogxor (vector-ref s x2) (vector-ref s (fx+ x2 10)))
+                  (fxlogxor (vector-ref s (fx+ x2 20))
+                    (fxlogxor (vector-ref s (fx+ x2 30))
+                              (vector-ref s (fx+ x2 40)))))
+                mask32))
+            (let ([x2+1 (fx+ x2 1)])
+              (vector-set! c x2+1
+                (fxlogand
+                  (fxlogxor
+                    (fxlogxor (vector-ref s x2+1) (vector-ref s (fx+ x2+1 10)))
+                    (fxlogxor (vector-ref s (fx+ x2+1 20))
+                      (fxlogxor (vector-ref s (fx+ x2+1 30))
+                                (vector-ref s (fx+ x2+1 40)))))
+                  mask32)))))
 
-        (do ([x 0 (+ x 1)])
-            ((= x 5))
-          (vector-set! d x
-            (xor64
-              (vector-ref c (mod (+ x 4) 5))
-              (rotl64 (vector-ref c (mod (+ x 1) 5)) 1))))
+        ;; θ: d[x] = c[(x+4)%5] XOR rotl(c[(x+1)%5], 1)
+        (do ([x 0 (fx+ x 1)])
+            ((fx= x 5))
+          (let* ([x2 (fx* x 2)]
+                 [prev (fx* (fxmod (fx+ x 4) 5) 2)]
+                 [next (fx* (fxmod (fx+ x 1) 5) 2)]
+                 [ch (vector-ref c next)]
+                 [cl (vector-ref c (fx+ next 1))]
+                 ;; rotl by 1
+                 [rh (fxlogand (fxlogior (sll32 ch 1) (fxsrl cl 31)) mask32)]
+                 [rl (fxlogand (fxlogior (sll32 cl 1) (fxsrl ch 31)) mask32)])
+            (vector-set! d x2
+              (fxlogand (fxlogxor (vector-ref c prev) rh) mask32))
+            (vector-set! d (fx+ x2 1)
+              (fxlogand (fxlogxor (vector-ref c (fx+ prev 1)) rl) mask32))))
 
-        (do ([i 0 (+ i 1)])
-            ((= i 25))
-          (vector-set! s i
-            (xor64 (vector-ref s i)
-                   (vector-ref d (mod i 5)))))
+        ;; θ: apply d to all lanes
+        (do ([i 0 (fx+ i 1)])
+            ((fx= i 25))
+          (let* ([i2 (fx* i 2)]
+                 [x2 (fx* (fxmod i 5) 2)])
+            (vector-set! s i2
+              (fxlogand (fxlogxor (vector-ref s i2) (vector-ref d x2)) mask32))
+            (vector-set! s (fx+ i2 1)
+              (fxlogand (fxlogxor (vector-ref s (fx+ i2 1)) (vector-ref d (fx+ x2 1))) mask32))))
 
         ;; ── ρ + π ──────────────────────────────────────────────────
-        (do ([i 0 (+ i 1)])
-            ((= i 25))
-          (let* ([x (mod i 5)]
-                 [y (div i 5)]
-                 [src-x (mod (+ x (* 3 y)) 5)]
-                 [src-idx (+ src-x (* x 5))])
-            (vector-set! b i
-              (rotl64 (vector-ref s src-idx)
-                      (vector-ref rho-offsets src-idx)))))
+        (do ([i 0 (fx+ i 1)])
+            ((fx= i 25))
+          (let* ([src (vector-ref pi-lanes i)]
+                 [src2 (fx* src 2)]
+                 [sh (vector-ref s src2)]
+                 [sl (vector-ref s (fx+ src2 1))]
+                 [r (vector-ref rho-offsets src)]
+                 [i2 (fx* i 2)])
+            (cond
+              [(fx= r 0)
+               (vector-set! b i2 sh)
+               (vector-set! b (fx+ i2 1) sl)]
+              [(fx= r 32)
+               (vector-set! b i2 sl)
+               (vector-set! b (fx+ i2 1) sh)]
+              [(fx< r 32)
+               (vector-set! b i2
+                 (fxlogand (fxlogior (sll32 sh r) (fxsrl sl (fx- 32 r))) mask32))
+               (vector-set! b (fx+ i2 1)
+                 (fxlogand (fxlogior (sll32 sl r) (fxsrl sh (fx- 32 r))) mask32))]
+              [else  ;; r > 32
+               (let ([r2 (fx- r 32)])
+                 (vector-set! b i2
+                   (fxlogand (fxlogior (sll32 sl r2) (fxsrl sh (fx- 32 r2))) mask32))
+                 (vector-set! b (fx+ i2 1)
+                   (fxlogand (fxlogior (sll32 sh r2) (fxsrl sl (fx- 32 r2))) mask32)))])))
 
         ;; ── χ ──────────────────────────────────────────────────────
-        (do ([y 0 (+ y 5)])
-            ((= y 25))
-          (do ([x 0 (+ x 1)])
-              ((= x 5))
-            (vector-set! s (+ y x)
-              (xor64
-                (vector-ref b (+ y x))
-                (and64
-                  (not64 (vector-ref b (+ y (mod (+ x 1) 5))))
-                  (vector-ref b (+ y (mod (+ x 2) 5))))))))
+        (do ([y 0 (fx+ y 5)])
+            ((fx= y 25))
+          (do ([x 0 (fx+ x 1)])
+              ((fx= x 5))
+            (let* ([i2 (fx* (fx+ y x) 2)]
+                   [j2 (fx* (fx+ y (fxmod (fx+ x 1) 5)) 2)]
+                   [k2 (fx* (fx+ y (fxmod (fx+ x 2) 5)) 2)])
+              (vector-set! s i2
+                (fxlogand
+                  (fxlogxor (vector-ref b i2)
+                    (fxlogand (fxlogxor (vector-ref b j2) mask32)
+                              (vector-ref b k2)))
+                  mask32))
+              (vector-set! s (fx+ i2 1)
+                (fxlogand
+                  (fxlogxor (vector-ref b (fx+ i2 1))
+                    (fxlogand (fxlogxor (vector-ref b (fx+ j2 1)) mask32)
+                              (vector-ref b (fx+ k2 1))))
+                  mask32)))))
 
         ;; ── ι ──────────────────────────────────────────────────────
         (vector-set! s 0
-          (xor64 (vector-ref s 0) (vector-ref rc-vec round))))))
+          (fxlogand (fxlogxor (vector-ref s 0) (vector-ref rc-hi round)) mask32))
+        (vector-set! s 1
+          (fxlogand (fxlogxor (vector-ref s 1) (vector-ref rc-lo round)) mask32)))))
 
-  ;; ── Byte ↔ Word64 helpers ─────────────────────────────────────────────
+  ;; ── Byte ↔ hi/lo helpers ──────────────────────────────────────────────
 
-  (define (bytes-to-lane bv offset)
-    (let ([b0 (bytevector-u8-ref bv offset)]
-          [b1 (bytevector-u8-ref bv (+ offset 1))]
-          [b2 (bytevector-u8-ref bv (+ offset 2))]
-          [b3 (bytevector-u8-ref bv (+ offset 3))]
-          [b4 (bytevector-u8-ref bv (+ offset 4))]
-          [b5 (bytevector-u8-ref bv (+ offset 5))]
-          [b6 (bytevector-u8-ref bv (+ offset 6))]
-          [b7 (bytevector-u8-ref bv (+ offset 7))])
-      (logior b0
-        (logior (ash b1 8)
-          (logior (ash b2 16)
-            (logior (ash b3 24)
-              (logior (ash b4 32)
-                (logior (ash b5 40)
-                  (logior (ash b6 48)
-                    (ash b7 56))))))))))
+  (define (bytes-to-hi bv offset)
+    (fxlogior
+      (bytevector-u8-ref bv (fx+ offset 4))
+      (fxlogior (sll32 (bytevector-u8-ref bv (fx+ offset 5)) 8)
+        (fxlogior (sll32 (bytevector-u8-ref bv (fx+ offset 6)) 16)
+                  (sll32 (bytevector-u8-ref bv (fx+ offset 7)) 24)))))
 
-  ;; ── Sponge (optimized, bytevector-native) ─────────────────────────────
+  (define (bytes-to-lo bv offset)
+    (fxlogior
+      (bytevector-u8-ref bv offset)
+      (fxlogior (sll32 (bytevector-u8-ref bv (fx+ offset 1)) 8)
+        (fxlogior (sll32 (bytevector-u8-ref bv (fx+ offset 2)) 16)
+                  (sll32 (bytevector-u8-ref bv (fx+ offset 3)) 24)))))
+
+  ;; ── Sponge ─────────────────────────────────────────────────────────────
 
   (define spongeOptimized
     (lambda (rate-bytes)
@@ -160,72 +207,93 @@
           (lambda (message-fv)
             (let* ([msg-len (flexvector-length message-fv)]
                    [msg (make-bytevector msg-len)]
-                   [_ (do ([i 0 (+ i 1)])
-                          ((= i msg-len))
+                   [_ (do ([i 0 (fx+ i 1)])
+                          ((fx= i msg-len))
                         (bytevector-u8-set! msg i (flexvector-ref message-fv i)))]
-                   ;; Padding
-                   [q (- rate-bytes (mod msg-len rate-bytes))]
-                   [padded-len (+ msg-len q)]
+                   [q (fx- rate-bytes (fxmod msg-len rate-bytes))]
+                   [padded-len (fx+ msg-len q)]
                    [padded (make-bytevector padded-len 0)]
                    [_ (bytevector-copy! msg 0 padded 0 msg-len)]
-                   [_ (if (= q 1)
+                   [_ (if (fx= q 1)
                           (bytevector-u8-set! padded msg-len
-                            (logior suffix-byte #x80))
+                            (fxlogior suffix-byte #x80))
                           (begin
                             (bytevector-u8-set! padded msg-len suffix-byte)
-                            (bytevector-u8-set! padded (- padded-len 1) #x80)))]
-                   ;; State
-                   [s (make-vector 25 0)]
-                   [num-lanes (div rate-bytes 8)]
-                   [num-blocks (div padded-len rate-bytes)])
+                            (bytevector-u8-set! padded (fx- padded-len 1) #x80)))]
+                   [s (make-vector 50 0)]
+                   [num-lanes (fxdiv rate-bytes 8)]
+                   [num-blocks (fxdiv padded-len rate-bytes)])
 
-              ;; ── Absorb ───────────────────────────────────────────
-              (do ([blk 0 (+ blk 1)])
-                  ((= blk num-blocks))
-                (let ([off (* blk rate-bytes)])
-                  (do ([lane 0 (+ lane 1)])
-                      ((= lane num-lanes))
-                    (vector-set! s lane
-                      (xor64 (vector-ref s lane)
-                             (bytes-to-lane padded (+ off (* lane 8))))))
-                  (keccak-f! s)))
+              ;; Absorb
+              (do ([blk 0 (fx+ blk 1)])
+                  ((fx= blk num-blocks))
+                (let ([off (fx* blk rate-bytes)])
+                  (do ([lane 0 (fx+ lane 1)])
+                      ((fx= lane num-lanes))
+                    (let* ([byte-off (fx+ off (fx* lane 8))]
+                           [lane2 (fx* lane 2)])
+                      (vector-set! s lane2
+                        (fxlogand
+                          (fxlogxor (vector-ref s lane2)
+                                    (bytes-to-hi padded byte-off))
+                          mask32))
+                      (vector-set! s (fx+ lane2 1)
+                        (fxlogand
+                          (fxlogxor (vector-ref s (fx+ lane2 1))
+                                    (bytes-to-lo padded byte-off))
+                          mask32)))))
+                (keccak-f! s))
 
-              ;; ── Squeeze ──────────────────────────────────────────
+              ;; Squeeze
               (let ([out-bv (make-bytevector output-bytes)])
                 (let loop ([pos 0])
-                  (when (< pos output-bytes)
-                    (do ([lane 0 (+ lane 1)])
-                        ((or (= lane num-lanes) (>= (+ pos (* lane 8)) output-bytes)))
-                      (let ([base (+ pos (* lane 8))]
-                            [w (vector-ref s lane)])
-                        (do ([b 0 (+ b 1)])
-                            ((or (= b 8) (>= (+ base b) output-bytes)))
-                          (bytevector-u8-set! out-bv (+ base b)
-                            (logand (ash w (* b -8)) #xFF)))))
-                    (let ([next-pos (+ pos rate-bytes)])
-                      (when (< next-pos output-bytes)
+                  (when (fx< pos output-bytes)
+                    (do ([lane 0 (fx+ lane 1)])
+                        ((or (fx= lane num-lanes)
+                             (fx>= (fx+ pos (fx* lane 8)) output-bytes)))
+                      (let* ([base (fx+ pos (fx* lane 8))]
+                             [lane2 (fx* lane 2)]
+                             [hi (vector-ref s lane2)]
+                             [lo (vector-ref s (fx+ lane2 1))])
+                        ;; Write lo bytes (0-3)
+                        (do ([byte-idx 0 (fx+ byte-idx 1)])
+                            ((or (fx= byte-idx 4) (fx>= (fx+ base byte-idx) output-bytes)))
+                          (bytevector-u8-set! out-bv (fx+ base byte-idx)
+                            (fxlogand (fxsrl lo (fx* byte-idx 8)) #xFF)))
+                        ;; Write hi bytes (4-7)
+                        (do ([byte-idx 0 (fx+ byte-idx 1)])
+                            ((or (fx= byte-idx 4) (fx>= (fx+ base (fx+ byte-idx 4)) output-bytes)))
+                          (bytevector-u8-set! out-bv (fx+ base (fx+ byte-idx 4))
+                            (fxlogand (fxsrl hi (fx* byte-idx 8)) #xFF)))))
+                    (let ([next-pos (fx+ pos rate-bytes)])
+                      (when (fx< next-pos output-bytes)
                         (keccak-f! s))
                       (loop next-pos))))
 
-                ;; Convert bytevector → flexvector for PureScript
                 (let ([result (make-flexvector output-bytes)])
-                  (do ([i 0 (+ i 1)])
-                      ((= i output-bytes) result)
+                  (do ([i 0 (fx+ i 1)])
+                      ((fx= i output-bytes) result)
                     (flexvector-set! result i
                       (bytevector-u8-ref out-bv i)))))))))))
 
-  ;; ── keccakF1600 wrapper for PureScript State type ─────────────────────
+  ;; ── keccakF1600 wrapper ────────────────────────────────────────────────
 
   (define keccakF1600Optimized
     (lambda (state-fv)
-      (let ([s (make-vector 25)])
-        (do ([i 0 (+ i 1)])
-            ((= i 25))
-          (vector-set! s i (flexvector-ref state-fv i)))
+      (let ([s (make-vector 50)])
+        (do ([i 0 (fx+ i 1)])
+            ((fx= i 25))
+          (let* ([w (flexvector-ref state-fv i)]
+                 [i2 (fx* i 2)])
+            (vector-set! s i2 (fxlogand (ash w -32) mask32))
+            (vector-set! s (fx+ i2 1) (fxlogand w mask32))))
         (keccak-f! s)
         (let ([result (make-flexvector 25)])
-          (do ([i 0 (+ i 1)])
-              ((= i 25) result)
-            (flexvector-set! result i (vector-ref s i)))))))
+          (do ([i 0 (fx+ i 1)])
+              ((fx= i 25) result)
+            (let ([i2 (fx* i 2)])
+              (flexvector-set! result i
+                (logior (ash (vector-ref s i2) 32)
+                        (vector-ref s (fx+ i2 1))))))))))
 
 ) ;; end library

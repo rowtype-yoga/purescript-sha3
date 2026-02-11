@@ -2,13 +2,14 @@ module Test.SHA3 where
 
 import Prelude
 
-import Crypto.SHA3 (SHA3(..), hash, toString, fromHex)
 import Crypto.Keccak as Keccak
+import Crypto.SHA3 (SHA3(..), hash, toString, fromHex)
 import Data.Array as A
 import Data.Foldable (for_)
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Console (log)
+import Test.SHA3.Bench as Bench
 
 type TestCase =
   { name     :: String
@@ -145,3 +146,5 @@ main = do
       , expected: show (Just (toString (hash SHA3_256 "abc")))
       }
     ]
+  log ""
+  Bench.benchSuite

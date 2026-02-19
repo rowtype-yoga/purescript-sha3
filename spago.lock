@@ -23,7 +23,7 @@
     },
     "package_set": {
       "address": {
-        "url": "https://raw.githubusercontent.com/harryprayiv/purescm/refs/heads/master/package-sets/1.0.0.json"
+        "url": "https://raw.githubusercontent.com/purescm/purescm/refs/heads/master/package-sets/1.0.0.json"
       },
       "compiler": ">=0.15.10 <0.16.0",
       "content": {

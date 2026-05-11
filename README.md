@@ -2,7 +2,7 @@
 
 SHA-3 (FIPS 202) cryptographic hash functions and extendable-output functions for PureScript, with optimized native FFI for both the **JavaScript** (Node.js) and **Chez Scheme** ([purescm](https://github.com/purescm/purescm)) backends.
 
-Verified against NIST test vectors on both backends.
+Verified against NIST test vectors on both backends. 
 
 
 

@@ -1,153 +1,134 @@
--- | SHA-3 (FIPS 202) cryptographic hash functions and extendable-output functions.
--- |
--- | Pure PureScript implementation of the Keccak-f[1600] permutation and
--- | sponge construction, as specified in NIST FIPS 202 (August 2015).
--- |
--- | Usage:
--- | ```purescript
--- | import Crypto.SHA3 (SHA3(..), hash, toString)
--- |
--- | digest = hash SHA3_256 "hello world"
--- | hex    = toString digest
--- | ```
 module Crypto.SHA3
-  ( SHA3(..)
-  , Digest
-  , class Hashable
-  , hash
+  ( Bytes(..)
   , sha3_224
   , sha3_256
   , sha3_384
   , sha3_512
-  , shake128
-  , shake256
-  , exportToBuffer
-  , importFromBuffer
-  , toString
-  , fromHex
+  , fromUtf8
+  , unBytes
+  , toHex
   ) where
 
 import Prelude
 
-import Crypto.SHA3.Keccak as Keccak
-import Data.Maybe (Maybe(..))
-import Node.Buffer (Buffer)
+import Crypto.SHA3.Keccak (State, clearState, getHi, getLo, keccakF, setHi, setLo)
+import Data.Int.Bits (shl, xor, zshr, (.&.), (.|.))
+import Wasm.Array (unsafeNew) as WA
+import Wasm.String (byteAt, byteLength, unsafeNew, unsafeSetByte) as WS
 
--------------------------------------------------------------------------------
--- FFI
--------------------------------------------------------------------------------
+-- | A byte string. On the wasm backend a `String` (`$Str`) is exactly a packed
+-- | byte buffer, so this newtype is zero-cost — no representation overhead, it
+-- | only stops text and raw bytes from being conflated at the type level.
+-- | Build it from text with `fromUtf8`, from an existing wasm byte buffer with
+-- | the `Bytes` constructor, and render a digest with `toHex`.
+newtype Bytes = Bytes String
 
-foreign import bufferToHex     :: Buffer -> String
-foreign import bufferFromHex   :: (Buffer -> Maybe Buffer) -> (forall a. Maybe a) -> String -> Maybe Buffer
-foreign import stringToUtf8Buffer :: String -> Buffer
-foreign import eqBuffer        :: Buffer -> Buffer -> Boolean
+unBytes :: Bytes -> String
+unBytes (Bytes s) = s
 
--------------------------------------------------------------------------------
--- Types
--------------------------------------------------------------------------------
+-- | Interpret a String as its UTF-8 bytes. On wasm a String is stored as UTF-8
+-- | and `Wasm.String.byteAt` reads raw bytes, so this is the identity wrap. (On
+-- | the JS backend a String is UTF-16, so non-ASCII would diverge — wasm is the
+-- | intended target.)
+fromUtf8 :: String -> Bytes
+fromUtf8 = Bytes
 
--- | SHA-3 hash function variants.
-data SHA3 = SHA3_224 | SHA3_256 | SHA3_384 | SHA3_512
+sha3_224 :: Bytes -> Bytes
+sha3_224 = hashBytes 144 28
 
--- | The output of a SHA-3 hash function.
-newtype Digest = Digest Buffer
+-- | SHA3-256: rate 136 bytes (capacity 512 bits), 32-byte raw digest.
+sha3_256 :: Bytes -> Bytes
+sha3_256 = hashBytes 136 32
 
-instance eqDigest :: Eq Digest where
-  eq (Digest a) (Digest b) = eqBuffer a b
+sha3_384 :: Bytes -> Bytes
+sha3_384 = hashBytes 104 48
 
-instance showDigest :: Show Digest where
-  show d = "(Digest " <> toString d <> ")"
+-- | SHA3-512: rate 72 bytes (capacity 1024 bits), 64-byte raw digest.
+sha3_512 :: Bytes -> Bytes
+sha3_512 = hashBytes 72 64
 
--------------------------------------------------------------------------------
--- Hashable
--------------------------------------------------------------------------------
+-- | Lowercase hex rendering of a digest (or any bytes). Separate from hashing
+-- | on purpose: callers who want the raw bytes never pay for, or have to parse,
+-- | a hex string.
+toHex :: Bytes -> String
+toHex (Bytes digest) = go 0 (WS.unsafeNew (2 * n))
+  where
+  n = WS.byteLength digest
+  go b acc
+    | b < n =
+        let
+          v = WS.byteAt digest b
+          acc1 = WS.unsafeSetByte acc (2 * b) (hexNibble (zshr v 4 .&. 0xF))
+          acc2 = WS.unsafeSetByte acc1 (2 * b + 1) (hexNibble (v .&. 0xF))
+        in
+          go (b + 1) acc2
+    | otherwise = acc
 
--- | Types that can be hashed with a SHA-3 function.
-class Hashable a where
-  hash :: SHA3 -> a -> Digest
+-- ---------------------------------------------------------------------------
+-- Internal sponge core (NOT exported). The single-block squeeze is valid only
+-- when outLen <= rate — true for every fixed-length SHA-3 (224/256/384/512 all
+-- have digest < rate). SHAKE's arbitrary-length output would need a
+-- permute-and-read loop and is deliberately out of scope.
+-- ---------------------------------------------------------------------------
 
-instance hashableString :: Hashable String where
-  hash variant value = hashBuffer variant (stringToUtf8Buffer value)
+hashBytes :: Int -> Int -> Bytes -> Bytes
+hashBytes rate outLen (Bytes input) =
+  squeezeRaw outLen (absorbAll 0 (clearState (WA.unsafeNew 50)))
+  where
+  len = WS.byteLength input
+  padLen = (len / rate + 1) * rate
+  nBlocks = padLen / rate
 
-instance hashableBuffer :: Hashable Buffer where
-  hash = hashBuffer
+  absorbAll i st
+    | i < nBlocks = absorbAll (i + 1) (absorbBlock (i * rate) st)
+    | otherwise = st
 
-hashBuffer :: SHA3 -> Buffer -> Digest
-hashBuffer variant buff =
+  absorbBlock offset st = keccakF (xorBytes 0 st)
+    where
+    xorBytes b s
+      | b < rate = xorBytes (b + 1) (xorByte s b (paddedByteAt input len padLen (offset + b)))
+      | otherwise = s
+
+-- Squeeze `n` raw bytes (single block) into a fresh wasm byte buffer.
+squeezeRaw :: Int -> State -> Bytes
+squeezeRaw n st = Bytes (go 0 (WS.unsafeNew n))
+  where
+  go b acc
+    | b < n = go (b + 1) (WS.unsafeSetByte acc b (readByte st b))
+    | otherwise = acc
+
+-- pad10*1 with the SHA-3 0x06 domain suffix, computed positionally (no buffer):
+-- message bytes from the string, 0x06 at index `len`, 0x80 at the last index;
+-- if those coincide the byte is 0x86.
+paddedByteAt :: String -> Int -> Int -> Int -> Int
+paddedByteAt input len padLen i =
+  (if i < len then WS.byteAt input i else 0)
+    .|. (if i == len then 0x06 else 0)
+    .|. (if i == padLen - 1 then 0x80 else 0)
+
+-- Rate byte b -> lane (b/8) at little-endian byte position (b mod 8): 0-3 in lo,
+-- 4-7 in hi. Lane linear index L -> (x,y) = (L mod 5, L div 5).
+xorByte :: State -> Int -> Int -> State
+xorByte s b v =
   let
-    rateBytes = variantRate variant
-    outBytes  = variantLength variant
+    l = b / 8
+    p = b `mod` 8
+    x = l `mod` 5
+    y = l / 5
   in
-    Digest (Keccak.spongeBuffer rateBytes 0x06 outBytes buff)
+    if p < 4 then setLo s x y (getLo s x y `xor` shl v (p * 8))
+    else setHi s x y (getHi s x y `xor` shl v ((p - 4) * 8))
 
--------------------------------------------------------------------------------
--- SHA-3 Hash Functions
--------------------------------------------------------------------------------
+readByte :: State -> Int -> Int
+readByte st b =
+  let
+    l = b / 8
+    p = b `mod` 8
+    x = l `mod` 5
+    y = l / 5
+    word = if p < 4 then getLo st x y else getHi st x y
+  in
+    zshr word ((p `mod` 4) * 8) .&. 0xFF
 
--- | SHA3-224: 224-bit (28-byte) digest, rate = 1152 bits.
-sha3_224 :: Buffer -> Digest
-sha3_224 = hash SHA3_224
-
--- | SHA3-256: 256-bit (32-byte) digest, rate = 1088 bits.
-sha3_256 :: Buffer -> Digest
-sha3_256 = hash SHA3_256
-
--- | SHA3-384: 384-bit (48-byte) digest, rate = 832 bits.
-sha3_384 :: Buffer -> Digest
-sha3_384 = hash SHA3_384
-
--- | SHA3-512: 512-bit (64-byte) digest, rate = 576 bits.
-sha3_512 :: Buffer -> Digest
-sha3_512 = hash SHA3_512
-
--------------------------------------------------------------------------------
--- SHA-3 Extendable-Output Functions (XOFs)
--------------------------------------------------------------------------------
-
--- | SHAKE128: 128-bit security, variable output length.
--- | First argument is the desired output length in bytes.
-shake128 :: Int -> Buffer -> Buffer
-shake128 outputBytes buff =
-  Keccak.spongeBuffer 168 0x1F outputBytes buff
-
--- | SHAKE256: 256-bit security, variable output length.
--- | First argument is the desired output length in bytes.
-shake256 :: Int -> Buffer -> Buffer
-shake256 outputBytes buff =
-  Keccak.spongeBuffer 136 0x1F outputBytes buff
-
--------------------------------------------------------------------------------
--- Serialization
--------------------------------------------------------------------------------
-
--- | Extract the raw buffer from a digest.
-exportToBuffer :: Digest -> Buffer
-exportToBuffer (Digest buff) = buff
-
--- | Wrap a buffer as a digest. No validation is performed on length.
-importFromBuffer :: Buffer -> Maybe Digest
-importFromBuffer = Just <<< Digest
-
--- | Hex-encode a digest.
-toString :: Digest -> String
-toString (Digest buff) = bufferToHex buff
-
--- | Decode a hex string to a digest.
-fromHex :: String -> Maybe Digest
-fromHex = map Digest <<< bufferFromHex Just Nothing
-
--------------------------------------------------------------------------------
--- Internal Helpers
--------------------------------------------------------------------------------
-
-variantRate :: SHA3 -> Int
-variantRate SHA3_224 = 144
-variantRate SHA3_256 = 136
-variantRate SHA3_384 = 104
-variantRate SHA3_512 = 72
-
-variantLength :: SHA3 -> Int
-variantLength SHA3_224 = 28
-variantLength SHA3_256 = 32
-variantLength SHA3_384 = 48
-variantLength SHA3_512 = 64
+hexNibble :: Int -> Int
+hexNibble n = if n < 10 then 48 + n else 87 + n

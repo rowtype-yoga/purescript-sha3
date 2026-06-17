@@ -10,3 +10,7 @@ generated-docs/
 .purs*
 .psa*
 .spago
+output-wasm-lib/
+output-wasm/
+output-bench/
+output-probe/

@@ -2,7 +2,7 @@ module Bench where
 
 import Prelude
 
-import Crypto.SHA3 (Bytes(..), sha3_224, sha3_256, sha3_384, sha3_512)
+import Crypto.SHA3 (Bytes(..), fromUtf8, sha3_224, sha3_256, sha3_384, sha3_512, toHex)
 import Data.Int.Bits ((.&.))
 import Effect (Effect)
 import Effect.Console (log)
@@ -29,3 +29,18 @@ hashOnceV variant n salt =
       _ -> sha3_256 b
   in
     WS.byteAt digest 0
+
+-- Returns 0 if every known SHA-3 vector matches, else the 1-based index of the
+-- first one that fails. Pure and exported; the JS driver calls it and expects 0.
+-- All string comparison happens in wasm (only the Int result crosses to JS), so
+-- this tests the real i64 codegen without depending on String marshalling.
+checkVectors :: Int -> Int
+checkVectors _ =
+  if toHex (sha3_256 (fromUtf8 "")) /= v256empty then 1
+  else if toHex (sha3_256 (fromUtf8 "abc")) /= v256abc then 2
+  else if toHex (sha3_512 (fromUtf8 "abc")) /= v512abc then 3
+  else 0
+  where
+  v256empty = "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a"
+  v256abc = "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532"
+  v512abc = "b751850b1a57168a5693cd924b6b096e08f621827444f70d884f5d0240d2712e10e116e9192af3c91a7ec57647e3934057340b4cf408d5a56592f8274eec53f0"

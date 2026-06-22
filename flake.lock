@@ -150,15 +150,15 @@
         "purescript-overlay": "purescript-overlay_2"
       },
       "locked": {
-        "lastModified": 1781724592,
-        "narHash": "sha256-LJxyGEtKKuTbL5lu2iSxWT5+eWmVmWSBb5Pxd7EgCUk=",
-        "owner": "purs-wasm",
+        "lastModified": 1782149037,
+        "narHash": "sha256-CwLu7avcO/0JzbsJp5rb85zmosVcVzeuCKkmJff73go=",
+        "owner": "harryprayiv",
         "repo": "purescript-backend-wasm",
-        "rev": "d57e642ba06dd7f506b63533523d41a6104b80d0",
+        "rev": "cbce561ea19846257d9ec5636e6a8a18c09b9074",
         "type": "github"
       },
       "original": {
-        "owner": "purs-wasm",
+        "owner": "harryprayiv",
         "repo": "purescript-backend-wasm",
         "type": "github"
       }

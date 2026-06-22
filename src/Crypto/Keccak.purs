@@ -1,65 +1,53 @@
 module Crypto.SHA3.Keccak
   ( State
   , clearState
-  , getLo
-  , getHi
-  , setLo
-  , setHi
+  , getLane
+  , setLane
   , keccakF
   ) where
 
 import Prelude
 
-import Data.Int.Bits (complement, shl, xor, zshr, (.&.), (.|.))
+import Data.Int.Bits (shl, (.|.))
 import Wasm.Array (unsafeIndex, unsafeNew, unsafeSet) as WA
+import Wasm.Int64 (Int64)
+import Wasm.Int64 as I
 
--- A 50-element MUTABLE wasm array. Lane (x,y) at 2*(x+5y) (lo) and +1 (hi).
--- Each Int is an i32; nothing masks. `setLo`/`setHi`/`clearState` mutate in
--- place and return the same buffer, threaded by the caller.
-type State = Array Int
+-- A 25-element MUTABLE wasm array of native i64 lanes. Lane (x,y) lives at the
+-- linear index x + 5y. `setLane`/`clearState` mutate in place and return the same
+-- buffer, threaded by the caller so the write stays live and ordered by the data
+-- dependency (no Effect needed). Each lane is one 64-bit word: one `i64.*`
+-- instruction per op, in particular `Wasm.Int64.rotl` (a single `i64.rotl`) for
+-- the rho step, replacing the old (lo, hi) i32-pair emulation.
+type State = Array Int64
 
--- Zero all 50 slots of an already-allocated buffer (unsafeNew leaves them
--- uninitialised). Used on the sponge's working state at hash entry.
+i64zero :: Int64
+i64zero = I.fromInt 0
+
+i64one :: Int64
+i64one = I.fromInt 1
+
+-- Zero all 25 lanes of an already-allocated buffer (`unsafeNew` leaves them null;
+-- reading before a write traps). Used on the sponge's working state at hash entry.
 clearState :: State -> State
 clearState s = go 0 s
   where
   go i acc
-    | i < 50 = go (i + 1) (WA.unsafeSet acc i 0)
+    | i < 25 = go (i + 1) (WA.unsafeSet acc i i64zero)
     | otherwise = acc
 
-loAt :: Int -> Int -> Int
-loAt x y = 2 * (x + 5 * y)
+-- Lane access by linear index l = x + 5y (0 <= l < 25). The sponge addresses
+-- lanes linearly too, so there is no (x, y) <-> index arithmetic on this path.
+getLane :: State -> Int -> Int64
+getLane = WA.unsafeIndex
 
-hiAt :: Int -> Int -> Int
-hiAt x y = 2 * (x + 5 * y) + 1
+setLane :: State -> Int -> Int64 -> State
+setLane = WA.unsafeSet
 
-getLo :: State -> Int -> Int -> Int
-getLo a x y = WA.unsafeIndex a (loAt x y)
-
-getHi :: State -> Int -> Int -> Int
-getHi a x y = WA.unsafeIndex a (hiAt x y)
-
-setLo :: State -> Int -> Int -> Int -> State
-setLo a x y v = WA.unsafeSet a (loAt x y) v
-
-setHi :: State -> Int -> Int -> Int -> State
-setHi a x y v = WA.unsafeSet a (hiAt x y) v
-
--- 64-bit left rotation on a (lo, hi) i32 pair, 0 <= n < 64.
-rotlLo :: Int -> Int -> Int -> Int
-rotlLo lo hi n
-  | n == 0 = lo
-  | n < 32 = shl lo n .|. zshr hi (32 - n)
-  | n == 32 = hi
-  | otherwise = let m = n - 32 in shl hi m .|. zshr lo (32 - m)
-
-rotlHi :: Int -> Int -> Int -> Int
-rotlHi lo hi n
-  | n == 0 = hi
-  | n < 32 = shl hi n .|. zshr lo (32 - n)
-  | n == 32 = lo
-  | otherwise = let m = n - 32 in shl lo m .|. zshr hi (32 - m)
-
+-- The 24 round constants, kept as their original 32-bit halves (the exact values
+-- the i32-pair version used, so already validated) and assembled into a full i64
+-- on demand. `fromInt` sign-extends, so the low half is masked to 32 bits before
+-- the high half is shifted in.
 hb :: Int
 hb = shl 1 31
 
@@ -77,6 +65,14 @@ rcHi =
   , 0, hb, hb, hb, hb, hb, 0, hb, hb, hb, 0, hb
   ]
 
+loMask :: Int64
+loMask = I.zshr (I.fromInt (-1)) (I.fromInt 32) -- 0x00000000FFFFFFFF
+
+rcAt :: Int -> Int64
+rcAt r =
+  I.shl (I.fromInt (WA.unsafeIndex rcHi r)) (I.fromInt 32)
+    `I.or` (I.fromInt (WA.unsafeIndex rcLo r) `I.and` loMask)
+
 rhoOffsets :: Array Int
 rhoOffsets =
   [ 0, 1, 62, 28, 27
@@ -86,21 +82,19 @@ rhoOffsets =
   , 18, 2, 61, 56, 14
   ]
 
-rho :: Int -> Int -> Int
-rho x y = WA.unsafeIndex rhoOffsets (x + 5 * y)
-
--- theta: column parities, then add D to every lane. D is computed into its own
--- 10-element buffer (distinct size, so never aliases the state) BEFORE any
--- lane is mutated, which is what makes the in-place update correct.
-
-columnLo :: State -> Int -> Int
-columnLo a x = getLo a x 0 `xor` getLo a x 1 `xor` getLo a x 2 `xor` getLo a x 3 `xor` getLo a x 4
-
-columnHi :: State -> Int -> Int
-columnHi a x = getHi a x 0 `xor` getHi a x 1 `xor` getHi a x 2 `xor` getHi a x 3 `xor` getHi a x 4
+-- theta: column parities into a separate 5-lane buffer (a distinct `unsafeNew`
+-- size, so it never aliases the 25-lane state), fully computed from the original
+-- state BEFORE any lane is mutated, which is what makes the in-place update sound.
+column :: State -> Int -> Int64
+column a x =
+  WA.unsafeIndex a x
+    `I.xor` WA.unsafeIndex a (x + 5)
+    `I.xor` WA.unsafeIndex a (x + 10)
+    `I.xor` WA.unsafeIndex a (x + 15)
+    `I.xor` WA.unsafeIndex a (x + 20)
 
 theta :: State -> State
-theta a = applyD a (computeD a (WA.unsafeNew 10) 0) 0
+theta a = applyD a (computeD a (WA.unsafeNew 5) 0) 0
 
 computeD :: State -> State -> Int -> State
 computeD a d x
@@ -108,14 +102,9 @@ computeD a d x
       let
         xm = (x + 4) `mod` 5
         xp = (x + 1) `mod` 5
-        cpLo = columnLo a xp
-        cpHi = columnHi a xp
-        dlo = columnLo a xm `xor` rotlLo cpLo cpHi 1
-        dhi = columnHi a xm `xor` rotlHi cpLo cpHi 1
-        d1 = WA.unsafeSet d (2 * x) dlo
-        d2 = WA.unsafeSet d1 (2 * x + 1) dhi
+        dx = column a xm `I.xor` I.rotl (column a xp) i64one
       in
-        computeD a d2 (x + 1)
+        computeD a (WA.unsafeSet d x dx) (x + 1)
   | otherwise = d
 
 applyD :: State -> State -> Int -> State
@@ -123,15 +112,13 @@ applyD a d l
   | l < 25 =
       let
         x = l `mod` 5
-        dlo = WA.unsafeIndex d (2 * x)
-        dhi = WA.unsafeIndex d (2 * x + 1)
-        a1 = WA.unsafeSet a (2 * l) (WA.unsafeIndex a (2 * l) `xor` dlo)
-        a2 = WA.unsafeSet a1 (2 * l + 1) (WA.unsafeIndex a1 (2 * l + 1) `xor` dhi)
+        al = WA.unsafeIndex a l `I.xor` WA.unsafeIndex d x
       in
-        applyD a2 d (l + 1)
+        applyD (WA.unsafeSet a l al) d (l + 1)
   | otherwise = a
 
--- rho + pi: read src lane, rotate, write to the permuted lane in dst (!= src).
+-- rho + pi: read src lane l, rotate left by rho(l), write to the permuted lane in
+-- dst (a different buffer from src). rho(x, y) is indexed by x + 5y, which is l.
 rhoPi :: State -> State -> State
 rhoPi src dst = go 0 dst
   where
@@ -140,17 +127,13 @@ rhoPi src dst = go 0 dst
         let
           x = l `mod` 5
           y = l / 5
-          n = rho x y
-          lo0 = WA.unsafeIndex src (2 * l)
-          hi0 = WA.unsafeIndex src (2 * l + 1)
           dl = y + 5 * ((2 * x + 3 * y) `mod` 5)
-          acc1 = WA.unsafeSet acc (2 * dl) (rotlLo lo0 hi0 n)
-          acc2 = WA.unsafeSet acc1 (2 * dl + 1) (rotlHi lo0 hi0 n)
+          rotated = I.rotl (WA.unsafeIndex src l) (I.fromInt (WA.unsafeIndex rhoOffsets l))
         in
-          go (l + 1) acc2
+          go (l + 1) (WA.unsafeSet acc dl rotated)
     | otherwise = acc
 
--- chi: read src (the post-rho-pi state), write dst (!= src).
+-- chi: out[l] = src[l] XOR ((NOT src[l1]) AND src[l2]); reads src, writes dst.
 chi :: State -> State -> State
 chi src dst = go 0 dst
   where
@@ -161,20 +144,14 @@ chi src dst = go 0 dst
           y = l / 5
           l1 = ((x + 1) `mod` 5) + 5 * y
           l2 = ((x + 2) `mod` 5) + 5 * y
-          lo = WA.unsafeIndex src (2 * l) `xor` (complement (WA.unsafeIndex src (2 * l1)) .&. WA.unsafeIndex src (2 * l2))
-          hi = WA.unsafeIndex src (2 * l + 1) `xor` (complement (WA.unsafeIndex src (2 * l1 + 1)) .&. WA.unsafeIndex src (2 * l2 + 1))
-          acc1 = WA.unsafeSet acc (2 * l) lo
-          acc2 = WA.unsafeSet acc1 (2 * l + 1) hi
+          out = WA.unsafeIndex src l
+                  `I.xor` (I.complement (WA.unsafeIndex src l1) `I.and` WA.unsafeIndex src l2)
         in
-          go (l + 1) acc2
+          go (l + 1) (WA.unsafeSet acc l out)
     | otherwise = acc
 
 iota :: Int -> State -> State
-iota r a =
-  let
-    a1 = WA.unsafeSet a 0 (WA.unsafeIndex a 0 `xor` WA.unsafeIndex rcLo r)
-  in
-    WA.unsafeSet a1 1 (WA.unsafeIndex a1 1 `xor` WA.unsafeIndex rcHi r)
+iota r a = WA.unsafeSet a 0 (WA.unsafeIndex a 0 `I.xor` rcAt r)
 
 keccakRound :: State -> Int -> State -> State
 keccakRound scratch r a =
@@ -185,11 +162,12 @@ keccakRound scratch r a =
   in
     iota r a2
 
--- One scratch buffer, allocated once and threaded through all 24 rounds. It is
--- a DISTINCT unsafeNew site from the caller's state buffer (the probe confirms
--- those don't merge), so `a` and `scratch` are always different memory.
+-- One scratch buffer, allocated once and threaded through all 24 rounds. It is a
+-- DISTINCT `unsafeNew` site from the caller's state buffer, so `a` and `scratch`
+-- are always different memory (the probe confirms distinct sites do not merge,
+-- even at the same length).
 keccakF :: State -> State
-keccakF a = go 0 a (WA.unsafeNew 50)
+keccakF a = go 0 a (WA.unsafeNew 25)
   where
   go r st scratch
     | r < 24 = go (r + 1) (keccakRound scratch r st) scratch

@@ -6,7 +6,7 @@
       url = "github:harryprayiv/purescript-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    purs-wasm-backend.url = "github:purs-wasm/purescript-backend-wasm";
+    purs-wasm-backend.url = "github:harryprayiv/purescript-backend-wasm";
   };
 
   outputs = { self, nixpkgs, flake-utils, purescript-overlay, purs-wasm-backend }:
@@ -29,19 +29,37 @@
             purs-wasm = purs-wasm-backend.apps.${system}.purs-wasm;
             default = purs-wasm-backend.apps.${system}.purs-wasm;
           };
-          devShells.default = pkgs.mkShellNoCC {
-            buildInputs = with pkgs; [
-              purs-bin.purs-0_15_16
-              spago
-              purs-tidy-bin.purs-tidy-0_10_0
-              purs-backend-es
-              esbuild
-              nodejs_24
-              pnpm
-              gnuplot
-            ] ++ [ purs-wasm ];
-          };
+          devShells.default =
+            let
+              sha3-check = pkgs.writeShellScriptBin "sha3-check" ''
+                set -euo pipefail
+                spago build
+                node copy-foreigns.mjs output-wasm
+                node -e 'import("./output-wasm/index.mjs").then(m => m.exports.main())'
+              '';
+              sha3-bench = pkgs.writeShellScriptBin "sha3-bench" ''
+                set -euo pipefail
+                backend="''${PURS_WASM_DEV:-/home/bismuth/git/purescript-backend-wasm/purs-wasm/index.dev.js}"
+                spago build
+                node "$backend" build -p node -E -I output -O output-bench -e Bench
+                node copy-foreigns.mjs output-bench
+                node bench.mjs
+              '';
+            in
+            pkgs.mkShellNoCC {
+              buildInputs = with pkgs; [
+                purs-bin.purs-0_15_16
+                spago
+                purs-tidy-bin.purs-tidy-0_10_0
+                purs-backend-es
+                esbuild
+                nodejs_24
+                pnpm
+                gnuplot
+              ] ++ [ purs-wasm sha3-check sha3-bench ];
+            };
         }
+        
     );
   nixConfig = {
     extra-experimental-features = ["nix-command flakes" "ca-derivations"];

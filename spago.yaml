@@ -18,8 +18,15 @@ workspace:
   packageSet:
     registry: 77.4.0
   backend:
-      cmd: purs-wasm
-      args: ["build", "-p", "node", "-E", "-e", "Main"]
+      cmd: node
+      args:
+        - /home/bismuth/git/purescript-backend-wasm/purs-wasm/index.dev.js
+        - build
+        - -p
+        - node
+        - -E
+        - -e
+        - Main
   extraPackages:
     wasm-base:
       git: "https://github.com/harryprayiv/purescript-wasm-base.git"

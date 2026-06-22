@@ -2,7 +2,7 @@
 
 SHA-3 (FIPS 202) cryptographic hash functions and extendable-output functions for PureScript, with optimized native FFI for the **JavaScript** (Node.js) and **Chez Scheme** ([purescm](https://github.com/purescm/purescm)) backends, plus an experimental, FFI-free **WebAssembly (GC)** backend.
 
-Verified against NIST test vectors on all three backends (the WebAssembly backend currently covers the four fixed-length variants — see [WebAssembly (GC) backend](#webassembly-gc-backend-experimental)).
+Verified against NIST test vectors on all three backends (the WebAssembly backend currently covers the four fixed-length variants, see [WebAssembly (GC) backend](#webassembly-gc-backend-experimental)).
 
 
 
@@ -133,7 +133,7 @@ main = do
 | `fromHex` | `String -> Maybe Digest` | Decode hex to a digest |
 
 On the JS backend, `input` is `Buffer`; on the Chez backend, `input` is `Array Int`.
-The WebAssembly backend exposes a smaller, `Bytes`-based surface — see below.
+The WebAssembly backend exposes a smaller, `Bytes`-based surface, see below.
 
 
 
@@ -182,10 +182,11 @@ SHA-3 (FIPS 202) Test Suite
 A third backend compiles the **pure-PureScript** implementation to a single WebAssembly-GC
 module via the [purs-wasm](https://github.com/purs-wasm) compiler backend (using the
 [`harryprayiv/purescript-backend-wasm`](https://github.com/harryprayiv/purescript-backend-wasm)
-fork). Unlike the JS and Chez backends there is **no FFI and no npm in the dependency graph** —
-the Keccak-f[1600] permutation, sponge, padding, and hex encoding are all written in PureScript
-over `wasm-base`'s `Wasm.Array` / `Wasm.String` primitives and `Data.Int.Bits`. The only host
-calls are the optional Node console/clock glue, which use Node builtins.
+fork). Unlike the JS and Chez backends there is **no FFI and no npm in the dependency graph**.
+The Keccak-f[1600] permutation, sponge, padding, and hex encoding are all written in PureScript
+over `wasm-base`'s `Wasm.Array` / `Wasm.String` primitives, `Data.Int.Bits`, and native
+`Wasm.Int64` operations for the 64-bit Keccak lanes. The only host calls are the optional Node
+console/clock glue, which use Node builtins.
 
 This backend lives on the `wasm` branch and is **experimental**: it tracks the in-development
 WasmGC proposal and is run under Node with `--experimental-wasm-custom-descriptors`.
@@ -209,33 +210,37 @@ toHex (sha3_256 (fromUtf8 "abc"))
 ```
 
 `Bytes` is a zero-cost newtype over `String` (on wasm a `String` is already a packed UTF-8 byte
-buffer). SHAKE, the `Digest` / `Hashable` typeclass sugar, and `fromHex` are **not yet ported** —
+buffer). SHAKE, the `Digest` / `Hashable` typeclass sugar, and `fromHex` are **not yet ported**:
 SHAKE needs a multi-block squeeze loop and the rest is presentation API, both tracked as
 follow-ups.
 
 **Validation.** All four fixed-length variants pass their NIST vectors on the WebAssembly
-backend, including the multi-block and 200×0xA3 cases — byte-for-byte identical to the JS and
+backend, including the multi-block and 200×0xA3 cases, byte-for-byte identical to the JS and
 Chez backends.
 
 **Performance.** Measured on the WasmGC backend via JS-side timing (a JS loop calling into the
-compiled module — the same measurement style as the Node figure):
+compiled module, the same measurement style as the Node figure):
 
 | Input | MB/s |
 |---|---|
-| 32 B   | 0.19 |
-| 512 B  | 0.80 |
-| 64 KiB | 1.02 |
-| 1 MiB  | 0.96 |
+| 32 B   | 0.43 |
+| 512 B  | 1.52 |
+| 64 KiB | 1.88 |
+| 1 MiB  | 1.83 |
 
 Throughput ramps with input size (small inputs are dominated by per-call and allocation overhead)
-and plateaus near **~1 MB/s** — roughly **7× the pure-PureScript-on-JS** figure (0.14 MB/s), since
-the same algorithm now compiles to WasmGC, but still **~28–50× below the native FFI backends**.
-That gap is the cost of experimental WasmGC under V8, not the algorithm: a single Keccak-f
-permutation takes ~0.8 ms here versus ~2.5 µs in the Chez FFI. The value of this backend is
-**correctness and a zero-FFI / zero-npm dependency graph**, not raw speed.
+and plateaus near **~1.8 MB/s** for SHA3-256. Rewriting the 64-bit Keccak lanes to use native
+`Wasm.Int64` (`i64.rotl` and friends) in place of the earlier emulated i32-pair arithmetic roughly
+doubled throughput, up from ~0.96 MB/s. That puts it at roughly **13× the pure-PureScript-on-JS**
+figure (0.14 MB/s), but still **15× to 28× below the native FFI backends**. The remaining gap is
+the cost of experimental WasmGC under V8 together with the still-boxed lane array: each Keccak lane
+lives in a boxed `Array Int64`, so the permutation allocates on every round. An unboxed packed-i64
+array would close more of it. The value of this backend is **correctness and a zero-FFI / zero-npm
+dependency graph**, not raw speed.
 
-**Build.** Requires the patched `purs-wasm` fork (it carries the `Data.Int.Bits` wasm intrinsics
-and a codegen fix for discarded `Effect` performs of non-foreign functions). Roughly:
+**Build.** Requires the patched `purs-wasm` fork (it carries the `Data.Int.Bits` wasm intrinsics,
+native `Wasm.Int64` support, and a codegen fix for discarded `Effect` performs of non-foreign
+functions). Roughly:
 
 ```bash
 spago build                                                        # emits corefn
@@ -255,11 +260,11 @@ SHA3-256 throughput on 1 MiB input (higher is better):
 
 | Implementation | MB/s |
 |---|---|
-| **Chez Scheme FFI (this library)** | **50.4** |
+| **Chez Scheme FFI (this library)** | **60.64** |
 | js-sha3 (reference JS, fully unrolled) | ~48 |
 | **Node.js FFI (this library)** | **28.1** |
 | noble/hashes (JS, loop-based) | ~18 |
-| **Pure PureScript → WasmGC (this library, purs-wasm)** | **~0.96** |
+| **Pure PureScript → WasmGC (this library, purs-wasm)** | **~1.83** |
 | Pure PureScript (no FFI) | 0.14 |
 
 The Chez backend achieves its throughput through fixnum-only 32-bit pair arithmetic
@@ -294,14 +299,14 @@ Each backend's `.js` or `.ss` file implements the same PureScript interface, so
 the `*.purs` modules work unchanged across the JS and Chez backends.
 
 The experimental **WebAssembly (GC)** backend lives on the `wasm` branch and takes a different
-shape: instead of per-backend FFI, `Crypto.SHA3.Keccak` and `Crypto.SHA3` are rewritten as
-**pure PureScript** over `wasm-base` primitives (`Wasm.Array` / `Wasm.String`, `Data.Int.Bits`),
-so there are no `.js` / `.ss` companions — the whole permutation and sponge compile straight to
-WasmGC. It exposes the `Bytes`-based subset API described above.
+shape: instead of per-backend FFI, `Crypto.Keccak` and `Crypto.SHA3` are rewritten as
+**pure PureScript** over `wasm-base` primitives (`Wasm.Array` / `Wasm.String`, `Data.Int.Bits`,
+native `Wasm.Int64`), so there are no `.js` / `.ss` companions. The whole permutation and sponge
+compile straight to WasmGC. It exposes the `Bytes`-based subset API described above.
 
 
 
 ### References
 
-- [NIST FIPS 202](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf) — SHA-3 Standard
-- [Errata](https://csrc.nist.gov/publications/detail/fips/202/final) — Algorithm 10 Step 1 correction (`0 ≤ i < 2m`)
+- [NIST FIPS 202](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf): SHA-3 Standard
+- [Errata](https://csrc.nist.gov/publications/detail/fips/202/final): Algorithm 10 Step 1 correction (`0 ≤ i < 2m`)

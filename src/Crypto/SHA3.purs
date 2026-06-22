@@ -11,11 +11,12 @@ module Crypto.SHA3
 
 import Prelude
 
-import Crypto.SHA3.Keccak (State, clearState, getLane, keccakF, setLane)
+import Crypto.SHA3.Keccak (State, getLane, keccakF, setLane)
 import Data.Int.Bits (zshr, (.&.), (.|.))
-import Wasm.Array (unsafeNew) as WA
 import Wasm.Int64 as I
+import Wasm.Int64Array (unsafeNew) as IA
 import Wasm.String (byteAt, byteLength, unsafeNew, unsafeSetByte) as WS
+
 
 -- | A byte string. On the wasm backend a `String` (`$Str`) is exactly a packed
 -- | byte buffer, so this newtype is zero-cost.
@@ -64,21 +65,43 @@ toHex (Bytes digest) = go 0 (WS.unsafeNew (2 * n))
 
 hashBytes :: Int -> Int -> Bytes -> Bytes
 hashBytes rate outLen (Bytes input) =
-  squeezeRaw outLen (absorbAll 0 (clearState (WA.unsafeNew 25)))
+  -- `IA.unsafeNew` zero-inits the 25 i64 lanes, so no explicit clear is needed
+  -- before the first absorb.
+  squeezeRaw outLen (absorbAll 0 (IA.unsafeNew 25))
   where
   len = WS.byteLength input
   padLen = (len / rate + 1) * rate
   nBlocks = padLen / rate
+  -- Every SHA-3 rate (144/136/104/72) is a multiple of 8, so a block is exactly
+  -- `nLanes` whole 64-bit lanes — no partial-lane bookkeeping.
+  nLanes = rate / 8
 
   absorbAll i st
     | i < nBlocks = absorbAll (i + 1) (absorbBlock (i * rate) st)
     | otherwise = st
 
-  absorbBlock offset st = keccakF (xorBytes 0 st)
+  -- Absorb a block one *lane* at a time: pack its 8 little-endian (padded) bytes
+  -- into a single i64 and XOR it into the lane in one shot. That replaces the old
+  -- byte-at-a-time loop (8 getLane/setLane round-trips per lane) with 8 cheap
+  -- i64 shifts+ors and a single setLane — ~8x fewer lane writes on the hot
+  -- absorb path, where large-input throughput is spent.
+  absorbBlock offset st = keccakF (go 0 st)
     where
-    xorBytes b s
-      | b < rate = xorBytes (b + 1) (xorByte s b (paddedByteAt input len padLen (offset + b)))
+    go l s
+      | l < nLanes = go (l + 1) (setLane s l (getLane s l `I.xor` laneAt (offset + l * 8)))
       | otherwise = s
+
+  -- The 8-byte little-endian word starting at byte index `base`, with pad10*1 and
+  -- the 0x06 domain suffix applied positionally by `paddedByteAt` (no scratch buffer).
+  laneAt base = foldByte 0 (I.fromInt 0)
+    where
+    foldByte k acc
+      | k < 8 =
+          foldByte (k + 1)
+            ( acc `I.or`
+                I.shl (I.fromInt (paddedByteAt input len padLen (base + k))) (I.fromInt (k * 8))
+            )
+      | otherwise = acc
 
 -- Squeeze `n` raw bytes (single block) into a fresh wasm byte buffer.
 squeezeRaw :: Int -> State -> Bytes
@@ -95,22 +118,14 @@ paddedByteAt input len padLen i =
     .|. (if i == len then 0x06 else 0)
     .|. (if i == padLen - 1 then 0x80 else 0)
 
--- Rate byte b -> lane (b / 8), little-endian byte position (b mod 8). With i64
--- lanes the whole lane is one word, so XOR-ing a byte in is a single shift + xor
--- (no lo/hi split). Byte values are 0..255, so `fromInt` needs no masking.
-xorByte :: State -> Int -> Int -> State
-xorByte s b v =
-  let
-    l = b / 8
-    p = b `mod` 8
-  in
-    setLane s l (getLane s l `I.xor` I.shl (I.fromInt v) (I.fromInt (p * 8)))
-
+-- Read raw byte `b` of the state: lane `b >> 3`, byte position `b & 7`. The
+-- power-of-two `/ 8` and `mod 8` are strength-reduced to a shift and a mask so
+-- the squeeze loop never hits the (helper-call) i32 div/rem path.
 readByte :: State -> Int -> Int
 readByte st b =
   let
-    l = b / 8
-    p = b `mod` 8
+    l = zshr b 3
+    p = b .&. 7
   in
     I.toInt (I.zshr (getLane st l) (I.fromInt (p * 8))) .&. 0xFF
 

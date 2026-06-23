@@ -14,7 +14,7 @@ import Prelude
 import Crypto.SHA3.Keccak (State, getLane, keccakF, setLane)
 import Data.Int.Bits (zshr, (.&.), (.|.))
 import Wasm.Int64 as I
-import Wasm.Int64Array (unsafeNew) as IA
+import Wasm.I64Array (unsafeNew) as IA
 import Wasm.String (byteAt, byteLength, unsafeNew, unsafeSetByte) as WS
 
 
@@ -93,13 +93,13 @@ hashBytes rate outLen (Bytes input) =
 
   -- The 8-byte little-endian word starting at byte index `base`, with pad10*1 and
   -- the 0x06 domain suffix applied positionally by `paddedByteAt` (no scratch buffer).
-  laneAt base = foldByte 0 (I.fromInt 0)
+  laneAt base = foldByte 0 (I.lowBits 0)
     where
     foldByte k acc
       | k < 8 =
           foldByte (k + 1)
             ( acc `I.or`
-                I.shl (I.fromInt (paddedByteAt input len padLen (base + k))) (I.fromInt (k * 8))
+                I.shl (I.lowBits (paddedByteAt input len padLen (base + k))) (I.lowBits (k * 8))
             )
       | otherwise = acc
 
@@ -127,7 +127,7 @@ readByte st b =
     l = zshr b 3
     p = b .&. 7
   in
-    I.toInt (I.zshr (getLane st l) (I.fromInt (p * 8))) .&. 0xFF
+    I.lowBits (I.zshr (getLane st l) (I.lowBits (p * 8))) .&. 0xFF
 
 hexNibble :: Int -> Int
 hexNibble n = if n < 10 then 48 + n else 87 + n

@@ -12,15 +12,15 @@ import Data.Int.Bits (shl, (.|.))
 import Wasm.Array (unsafeIndex) as WA
 import Wasm.Int64 (Int64)
 import Wasm.Int64 as I
-import Wasm.Int64Array (Int64Array)
-import Wasm.Int64Array as IA
+import Wasm.I64Array (I64Array)
+import Wasm.I64Array as IA
 
 -- | A 25-lane PACKED `(array (mut i64))`. Lane (x,y) is at x + 5y. Unlike the old
 -- | `Array Int64` (the universal `$Vals`, an `(array (mut eqref))` of boxed `$Int64`
 -- | structs), the lanes here are raw `i64`: `getLane`/`setLane` lower to a plain
 -- | `array.get`/`array.set` of an `i64`, and a round is allocation-free (no per-lane
 -- | `struct.new $Int64`, no `ref.cast`, no unbox before each `i64.*`).
-type State = Int64Array
+type State = I64Array
 
 ix :: State -> Int -> Int64
 ix = IA.unsafeIndex
@@ -38,10 +38,10 @@ cmpl :: Int64 -> Int64
 cmpl = I.complement
 
 rot :: Int64 -> Int -> Int64
-rot x n = I.rotl x (I.fromInt n)
+rot x n = I.rotl x (I.lowBits n)
 
 rl1 :: Int64 -> Int64
-rl1 x = I.rotl x (I.fromInt 1)
+rl1 x = I.rotl x (I.lowBits 1)
 
 -- | Zero all 25 lanes. `IA.unsafeNew` already zero-initialises, so this is only needed
 -- | if a buffer is reused; kept for sponge-entry parity.
@@ -49,7 +49,7 @@ clearState :: State -> State
 clearState s = go 0 s
   where
   go i acc
-    | i < 25 = go (i + 1) (st acc i (I.fromInt 0))
+    | i < 25 = go (i + 1) (st acc i (I.lowBits 0))
     | otherwise = acc
 
 getLane :: State -> Int -> Int64
@@ -76,12 +76,12 @@ rcHi =
   ]
 
 loMask :: Int64
-loMask = I.zshr (I.fromInt (-1)) (I.fromInt 32)
+loMask = I.zshr (I.lowBits (-1)) (I.lowBits 32)
 
 rcAt :: Int -> Int64
 rcAt r =
-  I.shl (I.fromInt (WA.unsafeIndex rcHi r)) (I.fromInt 32)
-    `I.or` (I.fromInt (WA.unsafeIndex rcLo r) `I.and` loMask)
+  I.shl (I.lowBits (WA.unsafeIndex rcHi r)) (I.lowBits 32)
+    `I.or` (I.lowBits (WA.unsafeIndex rcLo r) `I.and` loMask)
 
 -- | One fully-unrolled round, out-of-place: reads ONLY `inp`, writes ONLY `out`
 -- | (the two are always distinct buffers), so no read can observe a lane this round

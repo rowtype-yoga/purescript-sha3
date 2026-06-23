@@ -38,10 +38,10 @@ cmpl :: Int64 -> Int64
 cmpl = I.complement
 
 rot :: Int64 -> Int -> Int64
-rot x n = I.rotl x (I.lowBits n)
+rot x n = I.rotl x n
 
 rl1 :: Int64 -> Int64
-rl1 x = I.rotl x (I.lowBits 1)
+rl1 x = I.rotl x 1
 
 -- | Zero all 25 lanes. `IA.unsafeNew` already zero-initialises, so this is only needed
 -- | if a buffer is reused; kept for sponge-entry parity.
@@ -49,7 +49,7 @@ clearState :: State -> State
 clearState s = go 0 s
   where
   go i acc
-    | i < 25 = go (i + 1) (st acc i (I.lowBits 0))
+    | i < 25 = go (i + 1) (st acc i (I.fromInt 0))
     | otherwise = acc
 
 getLane :: State -> Int -> Int64
@@ -75,13 +75,8 @@ rcHi =
   , 0, hb, hb, hb, hb, hb, 0, hb, hb, hb, 0, hb
   ]
 
-loMask :: Int64
-loMask = I.zshr (I.lowBits (-1)) (I.lowBits 32)
-
 rcAt :: Int -> Int64
-rcAt r =
-  I.shl (I.lowBits (WA.unsafeIndex rcHi r)) (I.lowBits 32)
-    `I.or` (I.lowBits (WA.unsafeIndex rcLo r) `I.and` loMask)
+rcAt r = I.fromHiLo (WA.unsafeIndex rcHi r) (WA.unsafeIndex rcLo r)
 
 -- | One fully-unrolled round, out-of-place: reads ONLY `inp`, writes ONLY `out`
 -- | (the two are always distinct buffers), so no read can observe a lane this round

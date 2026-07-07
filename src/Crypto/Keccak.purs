@@ -1,38 +1,51 @@
 -- | Internal Keccak-f[1600] permutation and sponge construction.
 -- |
--- | Optimized JavaScript FFI implementation of the core algorithms
--- | from NIST FIPS 202. Not intended for direct use — see `Crypto.SHA3`
--- | for the public API.
-module Crypto.SHA3.Keccak
+-- | PHP backend (phpurs): the hot path is native PHP in `Keccak.php`.
+-- | PHP integers are native signed 64-bit with well-defined wrapping
+-- | shifts, so each lane is a single Int — no hi/lo 32-bit splitting
+-- | (as on JS) and no manual masking to [0, 2^64) (as on Chez).
+-- |
+-- | Lane values are two's-complement: a lane with bit 63 set shows as a
+-- | negative Int. Bit-identical for the XOR/AND/rotate algebra Keccak
+-- | uses; only relevant if you print raw state.
+module Crypto.Keccak
   ( sponge
-  , spongeBuffer
   , keccakF1600
-  , Lane
+  , ByteArray
+  , spongeNativeBv
   , State
   ) where
 
-import Node.Buffer (Buffer)
-
 -------------------------------------------------------------------------------
--- Types (exported for testing/benchmarking)
+-- Types
 -------------------------------------------------------------------------------
 
--- | A 64-bit lane, split into two 32-bit halves (lo = bits 0–31, hi = 32–63).
-type Lane = { hi :: Int, lo :: Int }
+type Bytes = Array Int
 
 -- | The Keccak state: 25 lanes indexed by (x + 5*y).
-type State = Array Lane
+-- | Each lane is a native 64-bit PHP integer.
+type State = Array Int
+
+-- | Opaque byte array — on PHP this IS a native binary string, zero wrapping.
+foreign import data ByteArray :: Type
 
 -------------------------------------------------------------------------------
--- FFI
+-- FFI — optimized PHP implementations
 -------------------------------------------------------------------------------
 
--- | Sponge construction operating on Array Int (for raw byte-level tests).
-foreign import sponge :: Int -> Int -> Int -> Array Int -> Array Int
+-- | Sponge over Array Int (byte-level test path; converts via pack/unpack).
+foreign import spongeOptimized :: Int -> Int -> Int -> Bytes -> Bytes
 
--- | Sponge construction operating directly on Node Buffer (zero-copy hot path).
-foreign import spongeBuffer :: Int -> Int -> Int -> Buffer -> Buffer
+-- | Native binary-string sponge: zero conversion overhead.
+foreign import spongeNativeBv :: Int -> Int -> Int -> ByteArray -> ByteArray
 
--- | Keccak-f[1600] permutation on a 25-lane state.
--- | Primarily exposed for benchmarking.
-foreign import keccakF1600 :: State -> State
+-- | Keccak-f[1600] permutation. Exposed for benchmarking.
+foreign import keccakF1600Optimized :: State -> State
+
+-- Expose under the original names so existing code doesn't change.
+
+sponge :: Int -> Int -> Int -> Bytes -> Bytes
+sponge = spongeOptimized
+
+keccakF1600 :: State -> State
+keccakF1600 = keccakF1600Optimized

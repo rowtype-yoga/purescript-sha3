@@ -1,9 +1,9 @@
-module Test.Crypto.SHA3 where
+module Test.SHA3 where
 
 import Prelude
 
+import Crypto.Keccak as Keccak
 import Crypto.SHA3 (SHA3(..), hash, toString, fromHex)
-import Crypto.SHA3.Keccak as Keccak
 import Data.Array as A
 import Data.Foldable (for_)
 import Data.Maybe (Maybe(..))
@@ -46,7 +46,6 @@ hashStr :: SHA3 -> String -> String
 hashStr variant = toString <<< hash variant
 
 -- | Hash raw bytes via Keccak internals, return hex.
--- | Used for tests that need byte-level control (non-UTF8 inputs, SHAKE).
 keccakHex :: Int -> Int -> Int -> Array Int -> String
 keccakHex rateBytes suffix outBytes input =
   bytesToHex (Keccak.sponge rateBytes suffix outBytes input)
@@ -66,7 +65,7 @@ bytesToHex = A.foldMap byteToHex
 
 main :: Effect Unit
 main = do
-  log "SHA-3 (FIPS 202) Test Suite\n"
+  log "SHA-3 (FIPS 202) Test Suite — phpurs / PHP backend\n"
   runTests
     -- SHA3-224
     [ { name: "SHA3-224(\"\")"
@@ -112,7 +111,7 @@ main = do
       , expected: "b751850b1a57168a5693cd924b6b096e08f621827444f70d884f5d0240d2712e10e116e9192af3c91a7ec57647e3934057340b4cf408d5a56592f8274eec53f0"
       }
 
-    -- SHAKE128 (via Keccak internals — XOFs return raw bytes, not Digest)
+    -- SHAKE128
     , { name: "SHAKE128(\"\", 32)"
       , result: keccakHex 168 0x1F 32 []
       , expected: "7f9c2ba4e88f827d616045507605853ed73b8093f6efbc88eb1a6eacfa66ef26"
@@ -124,7 +123,7 @@ main = do
       , expected: "46b9dd2b0ba88d13233b3feb743eeb243fcd52ea62b81b82b50c27646ed5762fd75dc4ddd8c0f200cb05019d67b592f6fc821c49479ab48640292eacb3b7c4be"
       }
 
-    -- Multi-block: 200 × 0xA3 (exceeds SHA3-256 rate of 136 bytes)
+    -- Multi-block: 200 × 0xA3
     , { name: "SHA3-256(200 × 0xA3)"
       , result: keccakHex 136 0x06 32 (A.replicate 200 0xA3)
       , expected: "79f38adec5c20307a98ef76e8324afbfd46cfd81b22e3973c65fa1bd9de31787"

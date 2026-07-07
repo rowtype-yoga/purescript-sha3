@@ -1,0 +1,14 @@
+{
+  "name": "purescript-sha3-php",
+  "private": true,
+  "description": "SHA-3 for PureScript on the phpurs (PHP) backend",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "build": "spago build",
+    "test": "spago build && php -d opcache.enable_cli=1 -d opcache.jit=tracing -d opcache.jit_buffer_size=64M output/main.php",
+    "bench": "spago build && BENCH=1 php -d opcache.enable_cli=1 -d opcache.jit=tracing -d opcache.jit_buffer_size=64M output/main.php"
+  },
+  "devDependencies": {
+    "phpurs": "github:0x000000000000000000001/phpurs"
+  }
+}

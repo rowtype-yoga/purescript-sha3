@@ -4,19 +4,99 @@ package:
     - arrays
     - console
     - effect
-    - enums
     - foldable-traversable
-    - integers
     - maybe
-    - node-buffer
     - prelude
-    - strings
   test:
-    # main: Test.Crypto.SHA3
     main: Test.Main
-    dependencies:
-      - node-buffer
+    dependencies: []
+
 workspace:
   packageSet:
-    registry: 73.0.0
-  extraPackages: {}
+    registry: 77.7.0
+  backend:
+    cmd: phpurs
+    args:
+      - "--main"
+      - "Test.Main"
+  # Every package in the transitive closure that carries JS FFI must be
+  # overridden with its phpurs-* port. Pure packages resolve from the
+  # registry unchanged. Known gap: `unfoldable` (pulled in by `arrays`)
+  # has JS FFI and no phpurs port yet — its two foreigns compile to null
+  # globals. Nothing in this library or its tests reaches them, and DCE
+  # via --main drops them, but calling Data.Unfoldable on this backend
+  # will fatal at runtime.
+  extraPackages:
+    prelude:
+      git: "https://github.com/0x000000000000000000001/phpurs-prelude.git"
+      ref: "master"
+      dependencies: []
+    effect:
+      git: "https://github.com/0x000000000000000000001/phpurs-effect.git"
+      ref: "master"
+      dependencies:
+        - prelude
+    console:
+      git: "https://github.com/0x000000000000000000001/phpurs-console.git"
+      ref: "master"
+      dependencies:
+        - effect
+        - prelude
+    arrays:
+      git: "https://github.com/0x000000000000000000001/phpurs-arrays.git"
+      ref: "master"
+      dependencies:
+        - bifunctors
+        - control
+        - foldable-traversable
+        - functions
+        - maybe
+        - nonempty
+        - partial
+        - prelude
+        - safe-coerce
+        - st
+        - tailrec
+        - tuples
+        - unfoldable
+        - unsafe-coerce
+    foldable-traversable:
+      git: "https://github.com/0x000000000000000000001/phpurs-foldable-traversable.git"
+      ref: "master"
+      dependencies:
+        - bifunctors
+        - control
+        - either
+        - functors
+        - identity
+        - maybe
+        - newtype
+        - orders
+        - prelude
+        - tuples
+    st:
+      git: "https://github.com/0x000000000000000000001/phpurs-st.git"
+      ref: "master"
+      dependencies:
+        - prelude
+        - tailrec
+        - unsafe-coerce
+    refs:
+      git: "https://github.com/0x000000000000000000001/phpurs-refs.git"
+      ref: "master"
+      dependencies:
+        - effect
+        - prelude
+    functions:
+      git: "https://github.com/0x000000000000000000001/phpurs-functions.git"
+      ref: "master"
+      dependencies:
+        - prelude
+    partial:
+      git: "https://github.com/0x000000000000000000001/phpurs-partial.git"
+      ref: "master"
+      dependencies: []
+    unsafe-coerce:
+      git: "https://github.com/0x000000000000000000001/phpurs-unsafe-coerce.git"
+      ref: "master"
+      dependencies: []

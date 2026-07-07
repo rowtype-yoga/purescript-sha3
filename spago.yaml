@@ -21,11 +21,15 @@ workspace:
       - "Test.Main"
   # Every package in the transitive closure that carries JS FFI must be
   # overridden with its phpurs-* port. Pure packages resolve from the
-  # registry unchanged. Known gap: `unfoldable` (pulled in by `arrays`)
-  # has JS FFI and no phpurs port yet — its two foreigns compile to null
-  # globals. Nothing in this library or its tests reaches them, and DCE
-  # via --main drops them, but calling Data.Unfoldable on this backend
-  # will fatal at runtime.
+  # registry unchanged. Missing foreigns are NOT dead-code-eliminated:
+  # phpurs compiles every module and maps absent FFI members to null
+  # globals, which throw "Unknown thunk" on first call. Known gaps:
+  #   * `unfoldable` (via `arrays`) has JS FFI and no phpurs port.
+  #   * upstream phpurs-functions ships only runFn2/runFn3; the local
+  #     checkout below carries a complete Data.Function.Uncurried FFI
+  #     (arrays needs runFn4/runFn5: index = runFn4 indexImpl, etc.).
+  #     Push it as a fork + upstream PR, then swap this for a git+ref
+  #     override — `path:` is unpinned and only suits local dev.
   extraPackages:
     prelude:
       git: "https://github.com/0x000000000000000000001/phpurs-prelude.git"
@@ -88,10 +92,7 @@ workspace:
         - effect
         - prelude
     functions:
-      git: "https://github.com/0x000000000000000000001/phpurs-functions.git"
-      ref: "master"
-      dependencies:
-        - prelude
+      path: "../phpurs-functions"
     partial:
       git: "https://github.com/0x000000000000000000001/phpurs-partial.git"
       ref: "master"

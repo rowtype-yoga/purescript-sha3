@@ -1,22 +1,44 @@
+# Start of ./spago.yaml
 package:
   name: sha3
   dependencies:
-    - arrays
-    - console
-    - effect
-    - enums
-    - foldable-traversable
-    - integers
-    - maybe
-    - node-buffer
     - prelude
-    - strings
+    - effect
+    - console
+    - functions
   test:
-    # main: Test.Crypto.SHA3
     main: Test.Main
     dependencies:
-      - node-buffer
+      - partial
+
 workspace:
   packageSet:
-    registry: 73.0.0
-  extraPackages: {}
+    registry: 50.5.0
+  backend:
+    cmd: "purerl"
+  extraPackages:
+    prelude:
+      git: https://github.com/purerl/purescript-prelude.git
+      ref: master
+      dependencies: []
+    effect:
+      git: https://github.com/purerl/purescript-effect.git
+      ref: master
+      dependencies:
+        - prelude
+    console:
+      git: https://github.com/purerl/purescript-console.git
+      ref: master
+      dependencies:
+        - effect
+        - prelude
+    functions:
+      git: https://github.com/purerl/purescript-functions.git
+      ref: master
+      dependencies:
+        - prelude
+    partial:
+      git: https://github.com/purerl/purescript-partial.git
+      ref: master
+      dependencies: []
+# End of ./spago.yaml
